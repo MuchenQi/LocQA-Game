@@ -1,0 +1,442 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>aetherbound.rpy — locqa proof</title>
+<style>
+  :root {
+    --paper:    #FAF9F6;
+    --sumi:     #16222E;
+    --ai:       #2F4E6B;
+    --ai-wash:  #DDE5EB;
+    --rule:     #C9D4DD;
+    --shu:      #BE3A2B;
+    --shu-wash: #F8E4E0;
+    --midori:   #3A6B52;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, monospace;
+    --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+    --mincho: "Hiragino Mincho ProN", "Yu Mincho", "Noto Serif JP", "MS Mincho", serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--paper); color: var(--sumi);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---- masthead ---- */
+  header { padding: 56px 0 0; }
+  .kanji {
+    font-family: var(--mincho); font-size: 13px; letter-spacing: .5em;
+    color: var(--shu); display: block; margin-bottom: 18px;
+  }
+  h1 {
+    font-size: clamp(30px, 6vw, 46px); line-height: 1.05; margin: 0 0 6px;
+    font-weight: 600; letter-spacing: -0.02em;
+  }
+  .meta { font-family: var(--mono); font-size: 12.5px; color: var(--ai); }
+  .rule { height: 2px; background: var(--shu); margin: 28px 0 0; }
+  .rule.thin { height: 1px; background: var(--rule); margin: 0; }
+
+  /* ---- tally ---- */
+  .tally { display: flex; flex-wrap: wrap; gap: 0; margin: 0 0 40px;
+           border-bottom: 1px solid var(--rule); }
+  .tally button {
+    appearance: none; background: none; border: 0; cursor: pointer;
+    padding: 18px 22px 16px 0; margin-right: 22px; text-align: left;
+    font-family: inherit; color: inherit; border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+  }
+  .tally button[aria-pressed="false"] { opacity: .32; }
+  .tally button[aria-pressed="true"].sev-blocker { border-bottom-color: var(--shu); }
+  .tally button[aria-pressed="true"].sev-major   { border-bottom-color: var(--ai); }
+  .tally button[aria-pressed="true"].sev-minor,
+  .tally button[aria-pressed="true"].sev-info    { border-bottom-color: var(--rule); }
+  .tally .n { display: block; font-size: 30px; font-weight: 600; line-height: 1;
+              font-variant-numeric: tabular-nums; }
+  .tally .l { font-family: var(--mono); font-size: 11px; text-transform: uppercase;
+              letter-spacing: .12em; color: var(--ai); }
+  .sev-blocker .n { color: var(--shu); }
+  .clean { color: var(--midori); font-family: var(--mono); font-size: 13px; }
+
+  /* ---- findings ---- */
+  .band { font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
+          text-transform: uppercase; color: var(--ai); margin: 44px 0 0;
+          padding-bottom: 8px; border-bottom: 1px solid var(--rule); }
+  .f { padding: 20px 0 22px; border-bottom: 1px solid var(--rule); }
+  .f.hidden { display: none; }
+  .f-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+            font-family: var(--mono); font-size: 11.5px; }
+  .id { color: var(--sumi); font-weight: 600; }
+  .check { color: var(--ai); }
+  .reach { color: var(--ai); opacity: .7; margin-left: auto; }
+  .sev-dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .sev-dot.blocker { background: var(--shu); }
+  .sev-dot.major   { background: var(--ai); }
+  .sev-dot.minor   { background: var(--rule); }
+  .sev-dot.info    { background: var(--rule); opacity: .5; }
+  .msg { margin: 9px 0 0; max-width: 68ch; }
+  .speaker { font-family: var(--mono); font-size: 11px; color: var(--ai);
+             text-transform: uppercase; letter-spacing: .1em; }
+  .src { font-size: 13.5px; color: var(--ai); margin: 10px 0 0; max-width: 68ch; }
+  .src::before { content: "EN "; font-family: var(--mono); font-size: 10px;
+                 letter-spacing: .1em; opacity: .6; }
+  .excerpt { font-family: var(--mincho); font-size: 17px; margin: 8px 0 0;
+             max-width: 68ch; }
+  .fix { margin: 10px 0 0; font-size: 13.5px; color: var(--ai);
+         padding-left: 14px; border-left: 2px solid var(--shu-wash); max-width: 68ch; }
+
+  /* ---- signature: genkō-yōshi grid ---- */
+  .grid { margin: 14px 0 2px; overflow-x: auto; padding-bottom: 4px; }
+  .grow { display: flex; align-items: stretch; margin-bottom: 3px; }
+  .gnum { font-family: var(--mono); font-size: 10px; color: var(--ai);
+          width: 20px; flex: 0 0 20px; display: flex; align-items: center;
+          justify-content: flex-end; padding-right: 7px; opacity: .55; }
+  .cells { display: flex; position: relative; }
+  .c {
+    width: 27px; height: 27px; flex: 0 0 27px;
+    border: 1px solid var(--ai-wash); margin-left: -1px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mincho); font-size: 16px; line-height: 1;
+    background: rgba(255,255,255,.6);
+  }
+  .c.half { width: 14px; flex-basis: 14px; font-size: 13px; }
+  .c.over { background: var(--shu-wash); border-color: #E9BDB6; }
+  .c.flag { background: var(--shu); border-color: var(--shu); color: #fff; }
+  .budget { position: absolute; top: -3px; bottom: -3px; width: 2px;
+            background: var(--shu); opacity: .85; }
+  .budget::after {
+    content: attr(data-label); position: absolute; top: -15px; left: 4px;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+    color: var(--shu); white-space: nowrap;
+  }
+  .gw { font-family: var(--mono); font-size: 10px; color: var(--ai);
+        display: flex; align-items: center; padding-left: 10px; opacity: .6;
+        white-space: nowrap; }
+
+  /* ---- by-check footer ---- */
+  .bycheck { margin-top: 52px; }
+  .bycheck table { width: 100%; border-collapse: collapse; font-family: var(--mono);
+                   font-size: 12px; }
+  .bycheck td { padding: 7px 0; border-bottom: 1px solid var(--rule); }
+  .bycheck td:first-child { width: 46px; text-align: right; padding-right: 16px;
+                            font-variant-numeric: tabular-nums; }
+  .bycheck td:last-child { color: var(--ai); }
+  footer { margin-top: 44px; font-family: var(--mono); font-size: 11px; color: var(--ai);
+           opacity: .7; }
+
+  :focus-visible { outline: 2px solid var(--shu); outline-offset: 3px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .f { transition: opacity .12s ease; }
+  }
+  @media (max-width: 560px) {
+    .wrap { padding: 0 16px 64px; }
+    .tally button { padding-right: 14px; margin-right: 14px; }
+    .reach { margin-left: 0; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="kanji">校正刷</span>
+    <h1>aetherbound.rpy</h1>
+    <div class="meta">
+      renpy &middot; en&thinsp;→&thinsp;ja
+      &middot; 26 segments &middot; 15 nodes
+      &middot; 2026-08-28 14:14
+    </div>
+    <div class="rule"></div>
+  </header>
+
+  
+  <div class="tally">
+    
+    <button class="sev-major" aria-pressed="true" data-sev="major">
+      <span class="n">4</span>
+      <span class="l">Major</span>
+    </button>
+    
+    <button class="sev-minor" aria-pressed="true" data-sev="minor">
+      <span class="n">7</span>
+      <span class="l">Minor</span>
+    </button>
+    
+  </div>
+
+  
+  <div class="band" data-band="major">Major &nbsp;·&nbsp; 4</div>
+  
+  <article class="f" data-sev="major">
+    <div class="f-head">
+      <span class="sev-dot major"></span>
+      <span class="id">start:menu1#2.opt</span>
+      <span class="check">graph.choice_parallelism</span>
+      
+      <span class="reach">reach 0.92</span>
+    </div>
+    <p class="msg">Option is in です・ます while its siblings are in だ・である. The player character's voice should not change between options in one menu.</p>
+    <p class="src">Ask what the Gate is.</p>
+
+    
+    <p class="excerpt">門とは何かを尋ねます</p>
+    
+
+    
+  </article>
+  
+  <article class="f" data-sev="major">
+    <div class="f-head">
+      <span class="sev-dot major"></span>
+      <span class="id">path_silence.1</span>
+      <span class="check">voice.register</span>
+      <span class="speaker">Sister Aldis</span>
+      <span class="reach">reach 0.76</span>
+    </div>
+    <p class="msg">Sister Aldis speaks in です・ます調 in 7 of 8 classified lines, but this line is だ・である調.</p>
+    <p class="src">Silence has its own courtesy.</p>
+
+    
+    <p class="excerpt">沈黙にも礼儀がある。</p>
+    
+
+    <p class="fix">If the shift is deliberate — a character dropping formality at a turning point — mark the segment to suppress this check.</p>
+  </article>
+  
+  <article class="f" data-sev="major">
+    <div class="f-head">
+      <span class="sev-dot major"></span>
+      <span class="id">gate_open.0</span>
+      <span class="check">graph.anaphora</span>
+      <span class="speaker">Narrator</span>
+      <span class="reach">reach 0.69</span>
+    </div>
+    <p class="msg">Opens with 「それ」, which refers back to the previous line — but this node is reached from 3 different places.</p>
+    <p class="src">The Gate answered with a sound like a held breath.</p>
+
+    
+    <p class="excerpt">それでも門は、息を殺したような音で応えた。</p>
+    
+
+    <p class="fix">Verify the line reads correctly after each parent: path_apology: ふん。言い方くらいは知っているらしいな。; path_question: あの門は、それを縛る盟約よりも古いのです。; path_silence: 何も言わないのか。結構だ。喋るだけ日が暮れる。</p>
+  </article>
+  
+  <article class="f" data-sev="major">
+    <div class="f-head">
+      <span class="sev-dot major"></span>
+      <span class="id">chapter_two.2</span>
+      <span class="check">voice.first_person</span>
+      <span class="speaker">Kestrel</span>
+      <span class="reach">reach 0.45</span>
+    </div>
+    <p class="msg">Kestrel uses 「僕」 (boyish, soft) here but 「俺」 in 2 other lines.</p>
+    <p class="src">Whatever's on the other side, it knows we're here.</p>
+
+    
+    <p class="excerpt">向こうに何がいるにせよ、僕たちがここにいることは知られている。</p>
+    
+
+    <p class="fix">Unless the character is quoting someone, use 「俺」.</p>
+  </article>
+  
+  
+  <div class="band" data-band="minor">Minor &nbsp;·&nbsp; 7</div>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">start:menu1#2.opt</span>
+      <span class="check">graph.choice_parallelism</span>
+      
+      <span class="reach">reach 0.92</span>
+    </div>
+    <p class="msg">Option ends in ますform while its siblings end in plain verb. Menu options should be grammatically parallel.</p>
+    <p class="src">Ask what the Gate is.</p>
+
+    
+    <p class="excerpt">門とは何かを尋ねます</p>
+    
+
+    
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">gate_open.0</span>
+      <span class="check">graph.merge_register</span>
+      <span class="speaker">Narrator</span>
+      <span class="reach">reach 0.69</span>
+    </div>
+    <p class="msg">Incoming paths use different registers — path_apology (だ・である), path_question (です・ます), path_silence (だ・である) — and converge here.</p>
+    <p class="src">The Gate answered with a sound like a held breath.</p>
+
+    
+    <p class="excerpt">それでも門は、息を殺したような音で応えた。</p>
+    
+
+    <p class="fix">Japanese carries the register forward; English does not, so this reads as continuous in the source and jarring in the target.</p>
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">gate_open.1</span>
+      <span class="check">ja.punctuation</span>
+      <span class="speaker">Sister Aldis</span>
+      <span class="reach">reach 0.69</span>
+    </div>
+    <p class="msg">Half-width . in Japanese prose; convention is 。.</p>
+    <p class="src">It recognizes you. That should not be possible.</p>
+
+    
+    <div class="grid">
+      
+      <div class="grow">
+        <span class="gnum">1</span>
+        <div class="cells">
+          <span class="c  ok">あ</span><span class="c  ok">な</span><span class="c  ok">た</span><span class="c  ok">を</span><span class="c  ok">認</span><span class="c  ok">識</span><span class="c  ok">し</span><span class="c  ok">て</span><span class="c  ok">い</span><span class="c  ok">ま</span><span class="c  ok">す</span><span class="c  ok">。</span><span class="c  ok">そ</span><span class="c  ok">ん</span><span class="c  ok">な</span><span class="c  ok">は</span><span class="c  ok">ず</span><span class="c  ok">は</span><span class="c  ok">な</span><span class="c  ok">い</span><span class="c  ok">の</span><span class="c  ok">で</span><span class="c  ok">す</span><span class="c  ok">が</span><span class="c half ok">.</span><span class="c half ok">.</span><span class="c half ok">.</span>
+          
+        </div>
+        <span class="gw">51</span>
+      </div>
+      
+    </div>
+    
+
+    <p class="fix">Replace with 。.</p>
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">gate_open.1</span>
+      <span class="check">ja.punctuation</span>
+      <span class="speaker">Sister Aldis</span>
+      <span class="reach">reach 0.69</span>
+    </div>
+    <p class="msg">ASCII ellipsis in Japanese prose; convention is the 三点リーダー ….</p>
+    <p class="src">It recognizes you. That should not be possible.</p>
+
+    
+    <div class="grid">
+      
+      <div class="grow">
+        <span class="gnum">1</span>
+        <div class="cells">
+          <span class="c  ok">あ</span><span class="c  ok">な</span><span class="c  ok">た</span><span class="c  ok">を</span><span class="c  ok">認</span><span class="c  ok">識</span><span class="c  ok">し</span><span class="c  ok">て</span><span class="c  ok">い</span><span class="c  ok">ま</span><span class="c  ok">す</span><span class="c  ok">。</span><span class="c  ok">そ</span><span class="c  ok">ん</span><span class="c  ok">な</span><span class="c  ok">は</span><span class="c  ok">ず</span><span class="c  ok">は</span><span class="c  ok">な</span><span class="c  ok">い</span><span class="c  ok">の</span><span class="c  ok">で</span><span class="c  ok">す</span><span class="c  ok">が</span><span class="c half ok">.</span><span class="c half ok">.</span><span class="c half ok">.</span>
+          
+        </div>
+        <span class="gw">51</span>
+      </div>
+      
+    </div>
+    
+
+    <p class="fix">Replace ... with …… (a pair).</p>
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">gate_open.2</span>
+      <span class="check">voice.final_particle</span>
+      <span class="speaker">Kestrel</span>
+      <span class="reach">reach 0.69</span>
+    </div>
+    <p class="msg">Kestrel ends a line with 「ぞ」 exactly once across 9 lines.</p>
+    <p class="src">Everything's impossible until it isn't. Move.</p>
+
+    
+    <p class="excerpt">不可能なんてのは、そうでなくなるまでの話だ。行くぞ。</p>
+    
+
+    <p class="fix">Either the persona marker is inconsistent, or it belongs to another character.</p>
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">cut_shrine_scene</span>
+      <span class="check">graph.unreachable</span>
+      
+      <span class="reach">reach 0.45</span>
+    </div>
+    <p class="msg">Node “cut_shrine_scene” holds 2 translated segment(s) but has no path from any entry point.</p>
+    
+
+    
+    <p class="excerpt">あの社には、百年誰も読んでいない記録が眠っております。</p>
+    
+
+    <p class="fix">Either the branch was cut and the strings should be removed from the wordcount, or an edge is missing.</p>
+  </article>
+  
+  <article class="f" data-sev="minor">
+    <div class="f-head">
+      <span class="sev-dot minor"></span>
+      <span class="id">chapter_two.1</span>
+      <span class="check">voice.final_particle</span>
+      <span class="speaker">Kestrel</span>
+      <span class="reach">reach 0.45</span>
+    </div>
+    <p class="msg">Kestrel ends a line with 「ぜ」 exactly once across 9 lines.</p>
+    <p class="src">Stay close. I mean it.</p>
+
+    
+    <p class="excerpt">離れるな。本気で言ってるぜ。</p>
+    
+
+    <p class="fix">Either the persona marker is inconsistent, or it belongs to another character.</p>
+  </article>
+  
+  
+
+  <div class="bycheck">
+    <div class="band">By check</div>
+    <table>
+      
+      <tr><td>2</td><td>graph.choice_parallelism</td></tr>
+      
+      <tr><td>2</td><td>ja.punctuation</td></tr>
+      
+      <tr><td>2</td><td>voice.final_particle</td></tr>
+      
+      <tr><td>1</td><td>voice.register</td></tr>
+      
+      <tr><td>1</td><td>graph.anaphora</td></tr>
+      
+      <tr><td>1</td><td>voice.first_person</td></tr>
+      
+      <tr><td>1</td><td>graph.merge_register</td></tr>
+      
+      <tr><td>1</td><td>graph.unreachable</td></tr>
+      
+    </table>
+  </div>
+  
+
+  <footer>locqa 0.1.0 — 26 checks run</footer>
+</div>
+
+<script>
+  // Severity filters. Each tally button toggles its band; the counts stay
+  // truthful because filtering hides rows rather than recomputing totals.
+  const buttons = document.querySelectorAll('.tally button');
+  buttons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const on = btn.getAttribute('aria-pressed') === 'true';
+      btn.setAttribute('aria-pressed', on ? 'false' : 'true');
+      const sev = btn.dataset.sev;
+      document.querySelectorAll('.f[data-sev="' + sev + '"]').forEach(function (el) {
+        el.classList.toggle('hidden', on);
+      });
+      const band = document.querySelector('.band[data-band="' + sev + '"]');
+      if (band) band.classList.toggle('hidden', on);
+    });
+  });
+</script>
+</body>
+</html>
