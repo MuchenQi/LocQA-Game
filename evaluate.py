@@ -188,6 +188,55 @@ def coverage(rows: list[dict]) -> None:
     print()
 
 
+def eval_anchoring(rows: list[dict]) -> None:
+    """Compare classifier agreement on blind vs assisted rows.
+
+    ingest.py --predict shows the annotator the classifier's guess on most rows
+    and hides it on a blind slice. If the assisted rows agree with the
+    classifier substantially more than the blind rows do, the annotator was
+    anchored and the assisted labels are not independent evidence.
+
+    The gap is the measurement. A few points is sampling noise; ten or more
+    means the assisted labels need a second pass with predictions hidden.
+    """
+    if not any("blind" in r for r in rows):
+        return
+
+    slices: dict[str, list[tuple[str, str]]] = {"blind": [], "assisted": []}
+    for r in rows:
+        gold = (r.get("register_gold") or "").strip().upper()
+        if gold not in LABELS:
+            continue
+        flag = (r.get("blind") or "").strip()
+        if flag not in ("0", "1"):
+            continue
+        bucket = "blind" if flag == "1" else "assisted"
+        slices[bucket].append((gold, classify_register(r["target_ja"])))
+
+    if not slices["blind"] or not slices["assisted"]:
+        return
+
+    print("\nANCHORING CHECK")
+    print("===============\n")
+    rates = {}
+    for name, pairs in slices.items():
+        agree = sum(1 for g, p in pairs if g == p) / len(pairs)
+        rates[name] = agree
+        print(f"  {name:<10} n = {len(pairs):>4}   agreement with classifier = {agree:.3f}")
+
+    gap = rates["assisted"] - rates["blind"]
+    print(f"\n  gap = {gap:+.3f}")
+    if gap >= 0.10:
+        print("\n  The assisted rows agree with the classifier far more than the blind")
+        print("  rows do. Treat the assisted labels as anchored: relabel them with the")
+        print("  _pred columns hidden before reporting any number from this set.")
+    elif gap >= 0.05:
+        print("\n  Mild gap. Watch it as the set grows; if it widens, relabel.")
+    else:
+        print("\n  No meaningful anchoring detected.")
+    print()
+
+
 def main() -> None:
     here = os.path.dirname(os.path.abspath(__file__))
     ap = argparse.ArgumentParser(description=__doc__)
@@ -199,6 +248,7 @@ def main() -> None:
     coverage(rows)
     reg_f1 = eval_register(rows, args.errors)
     pro_f1 = eval_pronoun(rows, args.errors)
+    eval_anchoring(rows)
 
     print("SUMMARY")
     print("=======\n")

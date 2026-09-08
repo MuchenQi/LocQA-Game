@@ -1,0 +1,33 @@
+__pycache__/
+*.py[cod]
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Generated reports — regenerate with `make demo`
+demo-*.html
+loc-report.html
+loc-results.xml
+*.junit.xml
+
+# Corpus text whose redistribution terms are unclear.
+# Labels are committed; the source text is fetched. See eval/SOURCES.md.
+corpus/
+eval/raw/
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

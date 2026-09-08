@@ -176,8 +176,9 @@ locqa/
   report.py         console · JSON · JUnit · CSV
   htmlreport.py     proof sheet with the character grid
   pseudo.py         pseudolocalization
-tests/              68 tests, stdlib unittest
+tests/              71 tests, stdlib unittest
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
+eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
 ```
 
 ## Running
@@ -188,12 +189,50 @@ python -m unittest discover -s tests -v
 locqa checks              # list every check with its default severity
 ```
 
+## Evaluation
+
+The voice checks are rule-based, so `eval/` measures them rather than asserting
+they work. Two harnesses: `evaluate.py` scores `classify_register` against
+hand-labeled lines, `sweep.py` scores the `voice.register` check itself across
+its thresholds.
+
+It has already paid for itself. On its first run it found that plain past `〜た`
+— the default ending of Japanese narration — was not detected at all. Fixing it
+moved classifier accuracy from 0.857 to 0.943. That gap had survived 68 passing
+tests, because the tests were written by the person who wrote the rules and
+shared their blind spot.
+
+Current seed set is 35 self-authored lines, which is a tenth of the target and
+not a publishable number. `eval/README.md` says so, and the threshold sweep
+reports that it cannot yet select a value — with 2 positives, 18 of 45
+combinations tie. `MIN_LINES` and `MIN_RATIO` remain unvalidated intuition until
+the set grows.
+
+```bash
+python eval/ingest.py FILE  # any parsable script → label-ready rows
+python eval/evaluate.py     # confusion matrix + error list + anchoring check
+python eval/sweep.py        # precision/recall across thresholds
+```
+
+`ingest.py --predict` can pre-fill the classifier's guess to speed up labeling,
+but it writes into `register_pred`, never `register_gold`, and holds back a
+blind slice. `evaluate.py` then compares agreement on the blind and assisted
+rows: if the assisted rows agree with the classifier much more, the annotator
+was anchored and those labels aren't independent evidence.
+
+See `eval/GUIDELINES.md` for the annotation protocol and `eval/FINDINGS.md` for
+the log of what each run caught.
+
 ## Known limits
 
 - The register and 語尾 classifiers are rule-based, tuned for precision over
-  recall. They will miss plain-form endings outside the listed patterns.
-  A learned classifier over a tagged corpus is the obvious next step and is
-  what the current rules exist to be measured against.
+  recall. Two known errors stand deliberately: `動くな。` (bare imperative,
+  register-ambiguous) classifies as plain, and `お待ちを。` (美化語 with elided
+  ください) classifies as neutral. Both are single-example failures, and patching
+  them now would be over-fitting — see `eval/FINDINGS.md` 002.
+- A learned classifier over a tagged corpus is the obvious next step. The rules
+  exist to be the baseline it has to beat, and `eval/` is how that comparison
+  gets made.
 - `graph.anaphora` uses an opener list, not semantics. It flags the position
   where a context bug is possible; a human confirms.
 - The Ren'Py parser recovers control flow, not full semantics: conditional
