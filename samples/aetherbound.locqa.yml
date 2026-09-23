@@ -1,0 +1,36 @@
+# Sample project config. Every key is optional; the defaults are a working
+# strict-ish profile on their own.
+
+# The build's font atlas is generated from the Shift-JIS repertoire, so
+# anything outside it renders as tofu. Use cp932 if the vendor extensions
+# (① ㈱ ～) are actually in the atlas.
+charset: shift_jis
+
+# Worst-case substituted widths, in half-width units. A box that fits {ITEM}
+# but not the longest item name in the DB is a bug that shows up in one save
+# file out of ten, so these are the DB maxima, not typical values.
+default_placeholder_width: 8
+placeholder_widths:
+  "{ITEM}": 14      # 「エーテルクリスタルの欠片」
+  "{SLOT}": 2
+  "{AMOUNT}": 7
+  "{BTN_A}": 3
+  "{PCT}": 3
+
+glossary:
+  "Save Point": ["セーブポイント"]
+  "Aether Gate": ["エーテル門"]
+
+forbidden:
+  "保存地点": "Save Point is a named system; use the katakana form."
+
+do_not_translate: ["Aetherbound"]
+
+# Several source strings collapsing into one target is usually fine in UI
+# text — 「戻る」 legitimately renders both Back and Return — so it is logged
+# rather than raised.
+severity_overrides:
+  consistency.target: INFO
+
+reach_weighting: true
+min_reach: 0.45

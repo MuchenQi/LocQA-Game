@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sample XLIFF 2.0 export, as a TMS would emit it. Two bugs are seeded:
+     TUTORIAL_GUARD drops an inline code, and DLG_ALDIS_01 ends in an ASCII
+     ellipsis. Everything else is clean. -->
+<xliff xmlns="urn:oasis:names:tc:xliff:document:2.0"
+       version="2.0" srcLang="en" trgLang="ja">
+  <file id="f1" original="aetherbound/ch1.rpy">
+
+    <unit id="TUTORIAL_ATTACK">
+      <notes>
+        <note category="node">tutorial</note>
+        <note category="max-width">30</note>
+      </notes>
+      <segment>
+        <source>Press <ph id="p1" equiv="{BTN_A}"/> to attack</source>
+        <target><ph id="p1" equiv="{BTN_A}"/>で攻撃</target>
+      </segment>
+    </unit>
+
+    <unit id="TUTORIAL_GUARD">
+      <notes>
+        <note category="node">tutorial</note>
+        <note category="max-width">30</note>
+      </notes>
+      <segment>
+        <source>Hold <ph id="p1" equiv="{BTN_B}"/> to guard</source>
+        <target>長押しでガード</target>
+      </segment>
+    </unit>
+
+    <unit id="DLG_KESTREL_01">
+      <notes>
+        <note category="speaker">Kestrel</note>
+        <note category="node">tutorial_end</note>
+        <note category="max-width">30</note>
+      </notes>
+      <segment>
+        <source>You're late. I don't wait twice.</source>
+        <target>遅いぞ。俺は二度も待たない。</target>
+      </segment>
+    </unit>
+
+    <unit id="DLG_ALDIS_01">
+      <notes>
+        <note category="speaker">Sister Aldis</note>
+        <note category="node">tutorial_end</note>
+        <note category="max-width">30</note>
+        <note category="max-lines">2</note>
+      </notes>
+      <segment>
+        <source>It recognizes you. That should not be <pc id="e1" equivStart="&lt;i&gt;" equivEnd="&lt;/i&gt;">possible</pc>...</source>
+        <target>あなたを認識しています。そんな<pc id="e1" equivStart="&lt;i&gt;" equivEnd="&lt;/i&gt;">はず</pc>はないのですが...</target>
+      </segment>
+    </unit>
+
+    <unit id="SYS_AUTOSAVE" translate="no">
+      <notes>
+        <note category="node">system</note>
+      </notes>
+      <segment>
+        <source>Aetherbound</source>
+        <target>Aetherbound</target>
+      </segment>
+    </unit>
+
+    <unit id="SYS_SAVING">
+      <notes>
+        <note category="node">system</note>
+        <note category="max-width">24</note>
+      </notes>
+      <segment>
+        <source>Saving to slot <ph id="p1" equiv="{SLOT}"/></source>
+        <target>スロット<ph id="p1" equiv="{SLOT}"/>にセーブ中</target>
+      </segment>
+    </unit>
+
+  </file>
+</xliff>

@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "locqa"
+version = "0.1.0"
+description = "Localization QA for game scripts, EN → JA. Graph-aware, offline."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+keywords = ["localization", "l10n", "qa", "japanese", "games", "renpy", "xliff"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Natural Language :: Japanese",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Software Development :: Localization",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+# PyYAML reads the project config and nothing else. The checks themselves have
+# no dependencies, and the tool makes no network calls.
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+# Only the threshold sweep's --plot needs this; eval/ runs without it.
+plot = ["matplotlib>=3.7"]
+
+[project.scripts]
+locqa = "locqa.cli:main"
+
+[tool.setuptools]
+packages = ["locqa", "locqa.checks", "locqa.parsers"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

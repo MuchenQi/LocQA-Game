@@ -1,0 +1,28 @@
+key,english,japanese,max_width,do_not_translate,notes
+UI_BTN_OK,OK,けってい,8,,
+UI_BTN_CANCEL,Cancel,キャンセル,8,,button on the pause menu
+UI_BTN_BACK,Cancel,もどる,8,,button on the options submenu
+UI_BTN_CONFIRM,Confirm,決定,8,,
+UI_MENU_SAVE,Save,セーブ,8,,
+UI_MENU_LOAD,Load,ロード,8,,
+UI_MENU_OPTIONS,Options,せってい,8,,
+UI_MENU_QUIT,Quit,ゲームを終了する,8,,
+UI_SAVE_POINT,Save at this Save Point?,この保存地点でセーブしますか？,30,,Save Point is a named system
+UI_SAVE_DONE,Saved to slot {SLOT}.,スロット{SLOT}にセーブしました。,32,,
+UI_SAVE_FAIL,Could not save.,セーブできませんでした.,24,,
+UI_ITEM_GET,You found {ITEM}!,見つけた！,24,,
+UI_ITEM_USE,Use {ITEM}?,{ITEM}を使いますか？,32,,
+UI_GOLD,{AMOUNT} gold,{AMOUNT}ゴールド,16,,
+UI_LEVEL_UP,Level up!,レベルアップ！,16,,
+UI_HP_LABEL,HP,ＨＰ,8,,
+UI_TITLE_COMPACT,The Aetherbound Compact,エーテルバウンドの盟約,30,,chapter heading
+UI_TITLE_SCREEN,Aetherbound,Aetherbound,30,TRUE,game logo; stays romanized
+UI_TIP_WAVE_1,Coming soon~,ちかぢか公開〜,24,,
+UI_TIP_WAVE_2,See you~,またね～,24,,
+UI_ACHIEVE_1,First Steps,はじめの一歩①,24,,achievement name
+UI_ACHIEVE_2,Gate Opener,門を開く者,24,,achievement name
+UI_CORP,Published by Aether Co.,発行：エーテル㈱,24,,legal footer
+UI_ERR_NETWORK,Network error.,ネットワークエラー。,24,,
+UI_ERR_FULL,Save data is full.,セーブデータがいっぱいです。,32,,
+UI_PROMPT_ATTACK,Press {BTN_A} to attack,｛BTN_A｝で攻撃,30,,tutorial overlay
+UI_CRIT_RATE,Crit rate {PCT}% up,クリティカル率{PCT}％上昇,30,,the ％ here is correct Japanese
