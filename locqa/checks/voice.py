@@ -53,6 +53,12 @@ POLITE_ENDINGS = re.compile(
 # vowel row but carry no register.
 PLAIN_ENDINGS = re.compile(
     r"(?:だ|だった|である|だろう|じゃない|ない|なかった|かった|してる|してた|するさ"
+    # Plain past 〜た is the default ending of Japanese narration, and leaving
+    # it out classified every past-tense line as NEUTRAL — the single largest
+    # source of error in the classifier, found by eval/ rather than by the
+    # tests. The lookbehinds hand まし／でし back to POLITE_ENDINGS, which is
+    # checked first anyway, so that a genuinely mixed line still reads MIXED.
+    r"|(?<!まし)(?<!でし)た"
     r"|よ|ぜ|ぞ|(?<![まちでそこどほ])[うくぐすつぬぶむる]"
     # i-adjective predicates (遅い / 高い) are plain form. The lookbehind drops
     # はい・おい・ええい, which end in the same kana but are interjections.

@@ -67,6 +67,7 @@ These require branch structure and produce nothing on a flat file.
 | `graph.merge_register` | Paths in different registers converging on one node |
 | `graph.unreachable` | Translated content with no path from an entry point — wordcount you paid for and nobody sees |
 | `graph.dangling` | A branch pointing at a label that doesn't exist |
+| `graph.solo_choice` | A menu with one option — usually a branch lost in conversion |
 
 ### Reachability weighting
 
@@ -176,7 +177,8 @@ locqa/
   report.py         console · JSON · JUnit · CSV
   htmlreport.py     proof sheet with the character grid
   pseudo.py         pseudolocalization
-tests/              71 tests, stdlib unittest
+  cli.py            check · graph · pseudo · checks, and the exit codes
+tests/              68 tests, stdlib unittest
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
 eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
 ```

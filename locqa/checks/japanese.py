@@ -179,10 +179,19 @@ class Punctuation(Check):
             if not _has_japanese(text):
                 continue
 
+            # Runs of two or more ASCII dots are an ellipsis, and the ellipsis
+            # rule below reports them with the right advice (…… as a pair).
+            # Letting the period rule claim them too turns one wrong ellipsis
+            # into two findings, and doubled counts are how a report loses a
+            # reviewer's trust.
+            ellipses = [m.span() for m in re.finditer(r"\.{2,}", text)]
+
             for half, full in FULLWIDTH_PUNCT.items():
                 # A half-width mark is only wrong when it sits against Japanese
                 # script; inside an embedded English phrase it is correct.
                 for m in re.finditer(re.escape(half), text):
+                    if half == "." and any(s <= m.start() < e for s, e in ellipses):
+                        continue
                     if _adjacent_to_japanese(text, m.start()):
                         yield self.finding(
                             config,

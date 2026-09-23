@@ -228,12 +228,25 @@ def display_width(text: str, ambiguous_wide: bool = True) -> int:
     return total
 
 
+def normalize_breaks(text: str) -> str:
+    r"""Turn the two-character escape `\n` into a real newline.
+
+    Loc sheets and script formats store a line break as a backslash followed
+    by an `n`. Left alone those are two rendered characters, so a string gets
+    charged two units it will not occupy *and* loses the break the engine will
+    actually make — measured as neither the text nor the layout that ships.
+    Everything that counts or wraps goes through here first.
+    """
+    return text.replace("\\n", "\n")
+
+
 def wrap_by_width(text: str, max_width: int, ambiguous_wide: bool = True) -> list[str]:
     """Greedy character wrap, the way a game textbox actually breaks lines.
 
     No word-boundary logic: Japanese engines wrap per character, which is
     exactly why kinsoku shori exists as a separate correction pass.
     """
+    text = normalize_breaks(text)
     if max_width <= 0:
         return [text]
     lines: list[str] = []
@@ -256,4 +269,4 @@ def wrap_by_width(text: str, max_width: int, ambiguous_wide: bool = True) -> lis
 
 
 def iter_lines(text: str) -> Iterable[str]:
-    return text.replace("\\n", "\n").split("\n")
+    return normalize_breaks(text).split("\n")

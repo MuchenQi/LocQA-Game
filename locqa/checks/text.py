@@ -14,7 +14,10 @@ from collections import defaultdict
 from functools import lru_cache
 from typing import Iterable
 
-from ..model import Finding, Script, Segment, Severity, display_width, iter_lines, wrap_by_width
+from ..model import (
+    Finding, Script, Segment, Severity,
+    display_width, iter_lines, normalize_breaks, wrap_by_width,
+)
 from .base import Check, Config, register
 from .integrity import expand_placeholders
 from .japanese import _strip_markup
@@ -59,12 +62,9 @@ class LengthBudget(Check):
             expanded = expand_placeholders(
                 seg.target, config.placeholder_widths, config.default_placeholder_width
             )
-            # Sheets store a line break as the two characters \ and n. Left
-            # as-is they are charged against the budget as two rendered units
-            # and suppress the break that the engine will actually make, so a
-            # string is measured as neither the text nor the layout it ships.
-            # `iter_lines` already treats them as a break; match it.
-            expanded = expanded.replace("\\n", "\n")
+            # Normalized here as well as inside wrap_by_width, because the
+            # total width below measures `expanded` directly.
+            expanded = normalize_breaks(expanded)
             width = seg.max_width or config.default_max_width
 
             if width:
