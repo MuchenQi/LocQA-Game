@@ -49,7 +49,7 @@ def make_sessionmaker(engine: Engine) -> sessionmaker:
 
 
 def init_db(engine: Engine) -> None:
-    """Create tables that do not exist yet. See README: migrations are next."""
-    from . import models  # noqa: F401 - registers the tables on Base
+    """Migrate the schema to head. Safe to call from every process at once."""
+    from .migrate import upgrade
 
-    Base.metadata.create_all(engine)
+    upgrade(engine)

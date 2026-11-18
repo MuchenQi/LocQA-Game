@@ -33,7 +33,8 @@ web = [
     "sqlalchemy>=2.0",
     "python-multipart>=0.0.9",
     "jinja2>=3.1",
-    "psycopg[binary]>=3.1",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.2",      # 3.2+: Connection.notifies(timeout=…) for LISTEN
     "httpx>=0.27",          # FastAPI's TestClient, for tests/test_web.py
 ]
 
@@ -45,7 +46,13 @@ locqa-worker = "locqa_web.worker:main"
 packages = ["locqa", "locqa.checks", "locqa.parsers", "locqa_web"]
 
 [tool.setuptools.package-data]
-locqa_web = ["templates/*.html", "static/*"]
+locqa_web = [
+    "templates/*.html",
+    "static/*",
+    "migrations/env.py",
+    "migrations/script.py.mako",
+    "migrations/versions/*.py",
+]
 
 [tool.ruff]
 line-length = 100

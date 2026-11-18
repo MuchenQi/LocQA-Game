@@ -2,6 +2,13 @@
 
 Skipped entirely when the `web` extra is not installed, so the core suite
 still runs on a bare `pip install -e .`.
+
+By default each test gets a fresh SQLite file. Set LOCQA_TEST_DATABASE_URL to
+run the same tests against Postgres instead (CI does both):
+
+    LOCQA_TEST_DATABASE_URL=postgresql://user:pass@localhost/locqa_test
+
+The database is wiped before every test, so never point it at real data.
 """
 
 from __future__ import annotations
@@ -33,11 +40,28 @@ if TestClient is not None:
     from locqa_web import jobs, security
     from locqa_web.app import COOKIE, create_app
     from locqa_web.db import utcnow
-    from locqa_web.models import DONE, FAILED, QUEUED, RUNNING, AuthSession, Run
+    from locqa_web.models import (
+        DONE, FAILED, QUEUED, RUNNING, AuthSession, PasswordReset, RateEvent, Run,
+    )
     from locqa_web.settings import Settings, normalize_db_url
 
 SAMPLES = os.path.join(os.path.dirname(__file__), "..", "samples")
 PASSWORD = "correct horse"
+TEST_DB = os.environ.get("LOCQA_TEST_DATABASE_URL", "").strip()
+ON_POSTGRES = TEST_DB.startswith(("postgres://", "postgresql"))
+
+
+def _reset_database(url: str) -> None:
+    """Empty the test database, so every test starts from migrations."""
+    from sqlalchemy import text as sql
+
+    from locqa_web.db import make_engine
+
+    engine = make_engine(normalize_db_url(url))
+    with engine.begin() as conn:
+        conn.execute(sql("DROP SCHEMA public CASCADE"))
+        conn.execute(sql("CREATE SCHEMA public"))
+    engine.dispose()
 
 
 def _sample(name: str) -> bytes:
@@ -54,9 +78,13 @@ class WebCase(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
+        if TEST_DB:
+            _reset_database(TEST_DB)
         self.settings = Settings(**{
-            "database_url": f"sqlite:///{self._tmp.name}/test.db",
+            "database_url": normalize_db_url(TEST_DB) if TEST_DB
+            else f"sqlite:///{self._tmp.name}/test.db",
             "inline_worker": False,
+            "mail_backend": "memory",
             **self.settings_overrides,
         })
         self.app = create_app(self.settings)
@@ -463,8 +491,328 @@ class TestInlineWorker(WebCase):
         self.assertEqual(status, DONE)
 
 
+class TestWakeup(WebCase):
+    # A 30-second poll: if the run finishes in a fraction of that, it was the
+    # upload that woke the worker, not the poll.
+    settings_overrides = {"inline_worker": True, "poll_interval_seconds": 30.0,
+                          "idle_poll_max_seconds": 30.0}
+
+    def test_upload_wakes_the_idle_inline_worker(self):
+        self.register()
+        time.sleep(0.3)                         # let the worker go idle on its 30s wait
+        started = time.monotonic()
+        run_id = self.run_id(self.upload("aetherbound_ui.csv", _sample("aetherbound_ui.csv")))
+        status = None
+        while time.monotonic() - started < 15:
+            status = self.client.get(f"/api/runs/{run_id}").json()["status"]
+            if status in (DONE, FAILED):
+                break
+            time.sleep(0.05)
+        self.assertEqual(status, DONE)
+        self.assertLess(time.monotonic() - started, 15)
+
+
+@unittest.skipIf(TestClient is None, "web extra not installed")
+class TestBackoff(unittest.TestCase):
+    """The idle loop, with a fake queue and a fake clock."""
+
+    class Waiter:
+        def __init__(self, stop, wake_at=None, waits=8):
+            self.stop, self.delays, self.wake_at, self.waits = stop, [], wake_at, waits
+
+        def wait(self, timeout, stop):
+            self.delays.append(timeout)
+            if len(self.delays) >= self.waits:
+                self.stop.set()
+            return len(self.delays) == self.wake_at
+
+    def run_loop(self, waiter, stop):
+        import threading as _threading  # noqa: F401 - stop is a threading.Event
+
+        settings = Settings(poll_interval_seconds=1.0, idle_poll_max_seconds=30.0)
+        original = jobs.run_once
+        jobs.run_once = lambda *_: None          # an empty queue, forever
+        try:
+            jobs.work(None, settings, stop, waiter)
+        finally:
+            jobs.run_once = original
+        return waiter.delays
+
+    def test_idle_worker_backs_off_to_the_cap(self):
+        import threading
+
+        stop = threading.Event()
+        delays = self.run_loop(self.Waiter(stop), stop)
+        self.assertEqual(delays, [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0])
+
+    def test_a_wakeup_resets_the_backoff(self):
+        import threading
+
+        stop = threading.Event()
+        delays = self.run_loop(self.Waiter(stop, wake_at=4, waits=6), stop)
+        self.assertEqual(delays, [1.0, 2.0, 4.0, 8.0, 1.0, 2.0])
+
+
+class TestConcurrentClaims(WebCase):
+    """The property the queue exists for. On SQLite this exercises the
+    compare-and-set alone; on Postgres, SKIP LOCKED as well."""
+
+    RUNS, WORKERS = 8, 4
+
+    def test_every_run_claimed_exactly_once(self):
+        import threading
+
+        self.register()
+        expected = {
+            self.run_id(self.upload(f"r{i}.csv", _sample("aetherbound_ui.csv")))
+            for i in range(self.RUNS)
+        }
+        claimed: list[int] = []
+        lock = threading.Lock()
+        barrier = threading.Barrier(self.WORKERS)
+        deadline = time.monotonic() + 30
+
+        def worker():
+            barrier.wait()
+            while time.monotonic() < deadline:
+                with lock:
+                    if len(claimed) >= self.RUNS:
+                        return
+                got = jobs.claim(self.Session, self.settings)
+                if got is None:
+                    time.sleep(0.005)            # lost a race, or SQLite was busy
+                    continue
+                with lock:
+                    claimed.append(got[0])
+
+        threads = [threading.Thread(target=worker) for _ in range(self.WORKERS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        self.assertEqual(sorted(claimed), sorted(expected))     # all, and no repeats
+        with self.Session() as s:
+            statuses = set(s.scalars(select(Run.status)))
+            attempts = set(s.scalars(select(Run.attempts)))
+        self.assertEqual((statuses, attempts), ({RUNNING}, {1}))
+
+
+@unittest.skipUnless(TestClient is not None and ON_POSTGRES,
+                     "needs LOCQA_TEST_DATABASE_URL pointing at Postgres")
+class TestPostgresNotify(WebCase):
+    def test_listener_hears_a_new_run(self):
+        import threading
+
+        self.register()
+        listener = jobs.listener_for(self.app.state.engine)
+        self.addCleanup(listener.close)
+        self.assertIsInstance(listener, jobs.PgListener)
+        self.assertFalse(listener.wait(0.2, threading.Event()))    # connects, hears nothing
+
+        heard = {}
+        stop = threading.Event()
+        t = threading.Thread(target=lambda: heard.setdefault("woke", listener.wait(10, stop)))
+        t.start()
+        time.sleep(0.3)
+        started = time.monotonic()
+        self.upload("aetherbound_ui.csv", _sample("aetherbound_ui.csv"))
+        t.join(15)
+        self.assertTrue(heard.get("woke"))
+        self.assertLess(time.monotonic() - started, 5)
+
+
+class TestMigrations(WebCase):
+    def test_migrations_match_the_models(self):
+        from alembic.autogenerate import compare_metadata
+        from alembic.migration import MigrationContext
+
+        from locqa_web.db import Base
+
+        with self.app.state.engine.connect() as conn:
+            diff = compare_metadata(MigrationContext.configure(conn), Base.metadata)
+        self.assertEqual(diff, [], "models changed without a migration: "
+                                   "alembic revision --autogenerate -m '…'")
+
+    def test_init_is_idempotent(self):
+        from locqa_web.db import init_db
+
+        init_db(self.app.state.engine)
+        init_db(self.app.state.engine)
+
+    def test_database_from_before_migrations_is_stamped_and_upgraded(self):
+        from sqlalchemy import inspect, text as sql
+
+        from locqa_web.db import Base, init_db, make_engine
+        from locqa_web.models import AuthSession, ConfigProfile, User
+
+        legacy_url = (normalize_db_url(TEST_DB) if TEST_DB
+                      else f"sqlite:///{self._tmp.name}/legacy.db")
+        self.app.state.engine.dispose()
+        if TEST_DB:
+            _reset_database(TEST_DB)
+        engine = make_engine(legacy_url)
+        try:
+            # What `create_all` built at the first web commit: four tables,
+            # no alembic_version.
+            Base.metadata.create_all(engine, tables=[
+                User.__table__, AuthSession.__table__, ConfigProfile.__table__, Run.__table__,
+            ])
+            with engine.begin() as conn:
+                conn.execute(sql("INSERT INTO users (email, password_hash, created_at) "
+                                 "VALUES ('old@example.com', 'x', CURRENT_TIMESTAMP)"))
+            init_db(engine)
+            with engine.connect() as conn:
+                tables = set(inspect(conn).get_table_names())
+                version = conn.execute(sql("SELECT version_num FROM alembic_version")).scalar()
+                kept = conn.execute(sql("SELECT email FROM users")).scalar()
+        finally:
+            engine.dispose()          # before tearDown deletes the file (Windows)
+        self.assertTrue({"rate_events", "password_resets"} <= tables)
+        self.assertEqual((version, kept), ("0002", "old@example.com"))
+
+
+class TestRateLimits(WebCase):
+    def login(self, password, client=None):
+        return (client or TestClient(self.app)).post(
+            "/login", data={"email": "kestrel@example.com", "password": password},
+            follow_redirects=False,
+        )
+
+    def test_sign_in_locks_after_five_failures(self):
+        self.register()
+        for _ in range(5):
+            self.assertEqual(self.login("wrong password").status_code, 400)
+        r = self.login(PASSWORD)                      # right password, still refused
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("Too many failed sign-ins", r.text)
+
+    def test_success_clears_the_count(self):
+        self.register()
+        for _ in range(4):
+            self.login("wrong password")
+        self.assertEqual(self.login(PASSWORD).status_code, 303)
+        for _ in range(4):
+            self.assertEqual(self.login("wrong password").status_code, 400)
+
+    def test_lockout_ends_when_the_window_passes(self):
+        self.register()
+        for _ in range(5):
+            self.login("wrong password")
+        with self.Session.begin() as s:
+            s.execute(update(RateEvent).values(created_at=utcnow() - timedelta(minutes=16)))
+        self.assertEqual(self.login(PASSWORD).status_code, 303)
+
+    def test_account_creation_limited_per_ip(self):
+        fresh = TestClient(self.app)
+        for i in range(10):
+            r = fresh.post("/register", data={"email": f"u{i}@example.com",
+                                              "password": PASSWORD}, follow_redirects=False)
+            self.assertEqual(r.status_code, 303, i)
+        r = fresh.post("/register", data={"email": "u10@example.com", "password": PASSWORD})
+        self.assertEqual(r.status_code, 429)
+
+
+class TestPasswordReset(WebCase):
+    def outbox(self):
+        return self.app.state.mailer.outbox
+
+    def request_reset(self, email="kestrel@example.com"):
+        return TestClient(self.app).post("/forgot", data={"email": email})
+
+    def link_token(self) -> str:
+        return re.search(r"/reset\?token=([\w-]+)", self.outbox()[-1].text).group(1)
+
+    def test_reset_flow(self):
+        self.register()
+        other_device = TestClient(self.app, cookies={COOKIE: self.client.cookies.get(COOKIE)})
+        self.assertEqual(other_device.get("/runs", follow_redirects=False).status_code, 200)
+
+        r = self.request_reset()
+        self.assertIn("a reset link is on its way", r.text)
+        self.assertEqual(len(self.outbox()), 1)
+        self.assertEqual(self.outbox()[0].to, "kestrel@example.com")
+        token = self.link_token()
+
+        browser = TestClient(self.app)
+        self.assertEqual(browser.get(f"/reset?token={token}").status_code, 200)
+        r = browser.post("/reset", data={"token": token, "password": "a new passphrase"},
+                         follow_redirects=False)
+        self.assertEqual((r.status_code, r.headers["location"]), (303, "/runs"))
+        self.assertEqual(browser.get("/runs", follow_redirects=False).status_code, 200)
+
+        # Signed out everywhere else; old password dead, new one works.
+        self.assertEqual(other_device.get("/runs", follow_redirects=False).status_code, 303)
+        fresh = TestClient(self.app)
+        self.assertEqual(fresh.post("/login", data={"email": "kestrel@example.com",
+                                                    "password": PASSWORD}).status_code, 400)
+        r = fresh.post("/login", data={"email": "kestrel@example.com",
+                                       "password": "a new passphrase"}, follow_redirects=False)
+        self.assertEqual(r.status_code, 303)
+
+    def test_link_works_once(self):
+        self.register()
+        self.request_reset()
+        token = self.link_token()
+        fresh = TestClient(self.app)
+        fresh.post("/reset", data={"token": token, "password": "a new passphrase"})
+        r = fresh.post("/reset", data={"token": token, "password": "another one!"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("expired", r.text)
+
+    def test_expired_link_refused(self):
+        self.register()
+        self.request_reset()
+        token = self.link_token()
+        with self.Session.begin() as s:
+            s.execute(update(PasswordReset).values(expires_at=utcnow() - timedelta(seconds=1)))
+        self.assertEqual(TestClient(self.app).get(f"/reset?token={token}").status_code, 400)
+
+    def test_new_request_retires_the_old_link(self):
+        self.register()
+        self.request_reset()
+        first = self.link_token()
+        self.request_reset()
+        second = self.link_token()
+        self.assertNotEqual(first, second)
+        fresh = TestClient(self.app)
+        self.assertEqual(fresh.get(f"/reset?token={first}").status_code, 400)
+        self.assertEqual(fresh.get(f"/reset?token={second}").status_code, 200)
+
+    def test_unknown_email_gets_the_same_page_and_no_mail(self):
+        self.register()
+        known = self.request_reset("kestrel@example.com").text
+        unknown = self.request_reset("nobody@example.com").text
+        strip = lambda html: html.replace("kestrel@example.com", "X").replace(  # noqa: E731
+            "nobody@example.com", "X")
+        self.assertEqual(strip(known), strip(unknown))
+        self.assertEqual([m.to for m in self.outbox()], ["kestrel@example.com"])
+
+    def test_tokens_are_stored_hashed(self):
+        self.register()
+        self.request_reset()
+        token = self.link_token()
+        with self.Session() as s:
+            stored = s.scalars(select(PasswordReset.token_hash)).all()
+        self.assertEqual(stored, [security.token_hash(token)])
+
+    def test_reset_requests_are_rate_limited(self):
+        self.register()
+        for _ in range(3):
+            self.assertEqual(self.request_reset().status_code, 200)
+        self.assertEqual(self.request_reset().status_code, 429)
+        self.assertEqual(len(self.outbox()), 3)
+
+
 @unittest.skipIf(TestClient is None, "web extra not installed")
 class TestSettings(unittest.TestCase):
+    def test_resend_needs_a_key_and_hides_it(self):
+        with self.assertRaises(ValueError):
+            Settings(mail_backend="resend")
+        settings = Settings(mail_backend="resend", resend_api_key="re_secret")
+        self.assertNotIn("re_secret", repr(settings))
+        with self.assertRaises(ValueError):
+            Settings(mail_backend="carrier-pigeon")
+
     def test_postgres_urls_use_psycopg3(self):
         self.assertEqual(normalize_db_url("postgres://u:p@h/db"), "postgresql+psycopg://u:p@h/db")
         self.assertEqual(normalize_db_url("postgresql://u@h/db"), "postgresql+psycopg://u@h/db")

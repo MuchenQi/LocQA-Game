@@ -25,6 +25,9 @@ def main() -> None:
     engine = make_engine(settings.database_url)
     init_db(engine)
     stop = threading.Event()
+    # LISTEN/NOTIFY on Postgres, so a new run is picked up at once instead of
+    # at the next poll. SQLite has no equivalent and polls.
+    waiter = jobs.listener_for(engine)
 
     def _stop(*_):
         stop.set()
@@ -35,7 +38,11 @@ def main() -> None:
     # A run in progress finishes (or times out) before the loop sees `stop`;
     # if the platform kills the process first, the lease lets another worker
     # pick the run up.
-    jobs.work(make_sessionmaker(engine), settings, stop)
+    try:
+        jobs.work(make_sessionmaker(engine), settings, stop, waiter)
+    finally:
+        if hasattr(waiter, "close"):
+            waiter.close()
 
 
 if __name__ == "__main__":

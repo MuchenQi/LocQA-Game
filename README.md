@@ -198,7 +198,12 @@ locqa_web/          browser front end (optional extra; see "Web front end")
   analysis.py       the child process: bytes + config in, report out
   models.py         users, sessions, saved configs, runs (which are also the queue)
   worker.py         standalone worker process
-tests/              92 core tests + 37 web tests, stdlib unittest
+  migrate.py        alembic upgrade at startup, under a Postgres advisory lock
+  migrations/       Alembic revisions
+  limits.py         sign-in, sign-up, and reset rate limits
+  mail.py           reset email: console, Resend, or in-memory
+tests/              92 core tests + 57 web tests, stdlib unittest
+.github/workflows/  CI: core on 3.10 and 3.13; web on SQLite and Postgres
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
 eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
 ```
@@ -223,12 +228,28 @@ pip install -e ".[web]"
 uvicorn locqa_web.app:app --reload      # http://localhost:8000
 ```
 
-That is the whole local setup: SQLite in the working directory, and the
-worker running as a thread inside the web process. For two processes:
+That is the whole local setup: SQLite in the working directory, the schema
+migrated at startup, and the worker running as a thread inside the web
+process. Password-reset emails are logged to the console rather than sent.
+For two processes:
 
 ```bash
 LOCQA_INLINE_WORKER=0 uvicorn locqa_web.app:app
 python -m locqa_web.worker              # as many as you like
+```
+
+Changing a model means writing a migration; CI fails if the two disagree.
+
+```bash
+alembic revision --autogenerate -m "what changed"   # then read the file it writes
+```
+
+Tests run on SQLite by default. Point them at a Postgres you can wipe to
+exercise the production paths too, as CI does on every push:
+
+```bash
+LOCQA_TEST_DATABASE_URL=postgresql://user:pass@localhost/locqa_test \
+  python -m unittest discover -s tests
 ```
 
 ### Not running the checker in the request
@@ -257,6 +278,33 @@ result to disagree. What makes that safe (`locqa_web/jobs.py`):
 - **Only lost workers are retried.** An unparseable file, an invalid config,
   or a timeout would fail identically the second time, so they fail once with
   a message the user can act on.
+- **New work wakes the worker; idleness costs almost nothing.** An upload
+  wakes the inline worker directly, and a standalone worker on Postgres hears
+  `NOTIFY` from the upload's transaction. With nothing to do, the poll backs
+  off from 1 s to 30 s. Polling every second forever would keep a serverless
+  Postgres awake around the clock. The poll stays as the safety net, since a
+  lapsed lease sends no notification.
+
+### Schema migrations
+
+Every process runs `alembic upgrade head` at startup
+(`locqa_web/migrate.py`). On Postgres the upgrade holds an advisory lock
+inside one transaction, so a web process and a worker starting together
+cannot both apply the same migration. A database built before migrations
+existed is detected, stamped at the baseline, and upgraded in place.
+
+### Accounts
+
+- **Rate limits** (`locqa_web/limits.py`): 5 failed sign-ins per email and 20
+  per IP in 15 minutes; 10 new accounts per IP an hour; 3 reset requests per
+  email an hour. The counts live in the database, so they survive restarts
+  and hold across instances. The per-email limit lets anyone lock an account
+  out for 15 minutes by failing on purpose; the window is short for that reason.
+- **Password reset**: single-use links that expire after an hour, stored
+  hashed like sessions. Using one signs the account out everywhere. The
+  request page reads the same whether or not the email has an account, and
+  the email is sent after the response, so neither the page nor its timing
+  tells you which emails are registered.
 
 ### Other decisions
 
@@ -275,28 +323,54 @@ result to disagree. What makes that safe (`locqa_web/jobs.py`):
 ### Deploying
 
 `Dockerfile` builds one image for both processes, so any platform that runs a
-container works. `render.yaml` is a Render blueprint for one web service plus
-Postgres, with the worker as a thread inside the web service. Set:
+container works. `render.yaml` is a Render blueprint for the cheapest setup
+that stays up: a free Render web service with the worker as a thread inside
+it, and a free [Neon](https://neon.com) Postgres. Not Render's own free
+Postgres, which is deleted 30 days after it is created.
+
+1. Create a Neon project and copy its **direct** connection string (not the
+   `-pooler` one).
+2. Push this repo to GitHub. In Render, choose **New → Blueprint** and select
+   the repo.
+3. When Render asks for the `sync: false` values, paste the Neon string as
+   `DATABASE_URL`, and set `LOCQA_BASE_URL` to the service's
+   `https://….onrender.com` address. `RESEND_API_KEY` can stay empty for now.
+4. Open the URL. Free Render services sleep after a stretch without traffic,
+   so the first request after a quiet spell is slow.
+5. For real reset emails, create a [Resend](https://resend.com) API key, set
+   `RESEND_API_KEY`, and set `LOCQA_MAIL_BACKEND=resend`. Until you verify a
+   sending domain, Resend only delivers to your own address. Until then the
+   reset links appear in the Render logs.
 
 | variable | default | |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./locqa_web.db` | `postgres://…` is rewritten for psycopg 3 |
 | `LOCQA_SECURE_COOKIES` | `0` | set `1` anywhere served over HTTPS |
 | `LOCQA_INLINE_WORKER` | `1` | `0` when running `locqa-worker` separately |
+| `LOCQA_BASE_URL` | request's own | public URL, for links in email |
+| `LOCQA_MAIL_BACKEND` | `console` | `resend` to send for real; `memory` in tests |
+| `RESEND_API_KEY` | | required with `LOCQA_MAIL_BACKEND=resend` |
+| `LOCQA_MAIL_FROM` | `locqa <onboarding@resend.dev>` | a verified sender |
 | `LOCQA_JOB_TIMEOUT` | `60` | seconds per run |
 | `LOCQA_MAX_UPLOAD_BYTES` | `5242880` | per file |
+| `LOCQA_IDLE_POLL_MAX` | `30` | longest idle poll, seconds |
 
 ### Web: known limits
 
-- Tables are created with `create_all`; there are no migrations yet, so a
-  schema change on a live database needs Alembic first.
-- The Postgres paths (`SKIP LOCKED`, psycopg) are exercised by SQL compilation
-  only; the test suite runs on SQLite.
-- No rate limiting on sign-in, no email verification, no password reset.
+- The Postgres-only paths (`SKIP LOCKED`, `LISTEN/NOTIFY`, the migration
+  lock) are tested in CI against a real Postgres. Locally the suite runs on
+  SQLite unless `LOCQA_TEST_DATABASE_URL` is set.
+- The Resend integration follows Resend's documented HTTP API but has not
+  been exercised against the live service.
+- A standalone worker holds a `LISTEN` connection open, which may stop a
+  serverless Postgres from scaling to zero. The free-tier setup runs the
+  worker inline, which does not.
+- No email verification on sign-up.
 - The request-size guard reads `Content-Length`; a chunked upload with none
   is still capped per file, but only after it has been spooled.
-- The worker polls once a second when idle. Postgres `LISTEN/NOTIFY` would
-  make pickup instant.
+- `--forwarded-allow-ips='*'` trusts `X-Forwarded-For` from anyone. That is
+  right behind a platform proxy, and wrong if the container is exposed
+  directly, because the per-IP rate limits would then trust a spoofable header.
 
 ## Evaluation
 

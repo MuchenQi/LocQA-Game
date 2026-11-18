@@ -1,10 +1,17 @@
-# Render blueprint: one web service (with the worker as a thread inside it)
-# and one Postgres database. Free-tier limits and expiry rules change; check
-# Render's current terms before relying on this for anything that matters.
+# Render blueprint: one free web service, with the worker running as a thread
+# inside it. The database is NOT Render's: a free Render Postgres is deleted
+# 30 days after it is created, which is no good for a link that has to stay
+# up. Use a free Neon database (or any Postgres) and paste its connection
+# string when Render asks for DATABASE_URL — use Neon's direct connection
+# string, not the "-pooler" one.
 #
-# To split the worker out later, add a `type: worker` service from the same
-# Dockerfile with dockerCommand `locqa-worker`, and set LOCQA_INLINE_WORKER=0
-# on the web service.
+# Render prompts for every `sync: false` value when the blueprint is first
+# applied. Free-tier terms change; check render.com/docs/free.
+#
+# To split the worker out later (a paid plan), add a `type: worker` service
+# from the same Dockerfile with dockerCommand `locqa-worker`, and set
+# LOCQA_INLINE_WORKER=0 here. The worker then hears about new runs through
+# Postgres LISTEN/NOTIFY.
 
 services:
   - type: web
@@ -14,14 +21,18 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: locqa-db
-          property: connectionString
+        sync: false                 # paste the Neon connection string
+      - key: LOCQA_BASE_URL
+        sync: false                 # e.g. https://locqa.onrender.com — used in reset emails
       - key: LOCQA_SECURE_COOKIES
         value: "1"
       - key: LOCQA_INLINE_WORKER
         value: "1"
-
-databases:
-  - name: locqa-db
-    plan: free
+      # Password reset email. Leave LOCQA_MAIL_BACKEND as "console" until
+      # you have a Resend key; reset links then appear in the service logs.
+      - key: LOCQA_MAIL_BACKEND
+        value: console
+      - key: LOCQA_MAIL_FROM
+        value: "locqa <onboarding@resend.dev>"
+      - key: RESEND_API_KEY
+        sync: false

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Choose a new password — locqa{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+{% if valid %}
+<h1 class="page-title">Choose a new password</h1>
+<p class="muted">Saving it signs this account out everywhere else.</p>
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+<form class="stack" method="post" action="/reset">
+  <input type="hidden" name="token" value="{{ token }}">
+  <label class="field">
+    <span>New password</span>
+    <input type="password" name="password" required minlength="8" autocomplete="new-password" autofocus>
+    <small>At least 8 characters.</small>
+  </label>
+  <button class="btn" type="submit">Save password</button>
+</form>
+{% else %}
+<h1 class="page-title">That link has expired</h1>
+<p class="muted">Reset links work once and only for an hour.</p>
+<p><a class="btn" href="/forgot">Send a new link</a></p>
+{% endif %}
+{% endblock %}

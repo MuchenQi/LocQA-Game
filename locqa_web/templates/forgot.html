@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Reset your password — locqa{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1 class="page-title">Reset your password</h1>
+
+{% if sent %}
+<p class="notice" role="status">
+  If an account exists for <strong>{{ email }}</strong>, a reset link is on its way.
+  It works once, within the hour.
+</p>
+<p class="muted switch">Nothing arrived? Check spam, or <a href="/forgot">send another</a>.</p>
+{% else %}
+<p class="muted">Enter the email you signed up with and we’ll send a link to set a new password.</p>
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+<form class="stack" method="post" action="/forgot">
+  <label class="field">
+    <span>Email</span>
+    <input type="email" name="email" value="{{ email }}" required autocomplete="email" autofocus>
+  </label>
+  <button class="btn" type="submit">Send reset link</button>
+</form>
+<p class="muted switch"><a href="/login">Back to sign in</a></p>
+{% endif %}
+{% endblock %}

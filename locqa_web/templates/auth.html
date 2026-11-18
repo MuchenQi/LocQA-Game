@@ -20,7 +20,8 @@
     <input type="password" name="password" required
            {% if mode == 'register' %}minlength="8" autocomplete="new-password"
            {% else %}autocomplete="current-password"{% endif %}>
-    {% if mode == 'register' %}<small>At least 8 characters.</small>{% endif %}
+    {% if mode == 'register' %}<small>At least 8 characters.</small>
+    {% else %}<small><a href="/forgot">Forgot your password?</a></small>{% endif %}
   </label>
   {% if mode == 'login' %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
   <button class="btn" type="submit">{{ 'Create account' if mode == 'register' else 'Sign in' }}</button>

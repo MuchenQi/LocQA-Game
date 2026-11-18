@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint,
+    DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -99,3 +99,35 @@ class Run(Base):
     summary_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     findings_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     report_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RateEvent(Base):
+    """One attempt that counts against a rate limit (see limits.py).
+
+    In the database rather than in process memory so the limit holds across
+    restarts, deploys, and more than one web instance. Rows older than the
+    longest window are pruned as new ones are written.
+    """
+
+    __tablename__ = "rate_events"
+    __table_args__ = (Index("ix_rate_events_lookup", "kind", "key", "created_at"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(16))          # login | register | reset
+    key: Mapped[str] = mapped_column(String(400))          # "email:…" or "ip:…"
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+
+class PasswordReset(Base):
+    """A single-use, short-lived reset link. Stored hashed, like sessions."""
+
+    __tablename__ = "password_resets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

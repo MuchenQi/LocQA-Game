@@ -21,7 +21,9 @@ from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile,
+)
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -33,13 +35,16 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from locqa import __version__ as LOCQA_VERSION
 from locqa import registry
 
-from . import jobs, security
+from . import jobs, limits, security
+from .mail import Message, make_mailer
 from .analysis import (
     ALLOWED_EXTENSIONS, TRANSLATION_EXTENSIONS, InputError, extension, safe_filename,
     validate_config,
 )
 from .db import init_db, make_engine, make_sessionmaker, utcnow
-from .models import DONE, FAILED, QUEUED, RUNNING, AuthSession, ConfigProfile, Run, User
+from .models import (
+    DONE, FAILED, QUEUED, RUNNING, AuthSession, ConfigProfile, PasswordReset, Run, User,
+)
 from .settings import Settings
 
 HERE = Path(__file__).resolve().parent
@@ -165,13 +170,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     init_db(engine)
     Session = make_sessionmaker(engine)
 
+    # Set by every upload. The inline worker sleeps on it instead of polling
+    # every second; without an inline worker nothing waits on it, and a
+    # standalone worker hears about the run through Postgres NOTIFY instead.
+    wakeup = jobs.Wakeup()
+    mailer = make_mailer(settings)
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         stop = threading.Event()
         thread = None
         if settings.inline_worker:
             thread = threading.Thread(
-                target=jobs.work, args=(Session, settings, stop),
+                target=jobs.work, args=(Session, settings, stop, wakeup),
                 name="locqa-inline-worker", daemon=True,
             )
             thread.start()
@@ -179,6 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             stop.set()
+            wakeup.notify()
             if thread is not None:
                 thread.join(timeout=settings.job_timeout_seconds + 5)
 
@@ -191,6 +203,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
     app.state.Session = Session
     app.state.engine = engine
+    app.state.wakeup = wakeup
+    app.state.mailer = mailer
 
     templates = Jinja2Templates(directory=str(HERE / "templates"))
     templates.env.filters["when"] = _fmt_time
@@ -271,6 +285,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             auth, user = row
             return Viewer(user_id=user.id, email=user.email, csrf=auth.csrf_token)
 
+    def client_ip(request: Request) -> str:
+        # Behind the platform's proxy, uvicorn --proxy-headers has already
+        # replaced this with the X-Forwarded-For address.
+        return request.client.host if request.client else "unknown"
+
     def require_viewer(request: Request) -> Viewer:
         viewer = viewer_of(request)
         if viewer is None:
@@ -322,6 +341,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         password: Annotated[str, Form()],
     ):
         email = email.strip().lower()
+        ip = client_ip(request)
+        with Session.begin() as s:
+            wait = limits.retry_after(s, "register", ip=ip)
+            if wait is None:
+                limits.record(s, "register", ip=ip)
+        if wait is not None:
+            return render(request, "auth.html", mode="register", email=email,
+                          error=f"Too many new accounts from this network. "
+                          f"Try again in {limits.describe(wait)}.", status_code=429)
+
         error = None
         if not _EMAIL.match(email) or len(email) > 320:
             error = "Enter a valid email address."
@@ -357,6 +386,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         next: Annotated[str | None, Form()] = None,
     ):
         email = email.strip().lower()
+        ip = client_ip(request)
+        # Checked before the password is hashed: a locked-out guesser should
+        # not even cost the server an scrypt.
+        with Session() as s:
+            wait = limits.retry_after(s, "login", email=email, ip=ip)
+        if wait is not None:
+            return render(request, "auth.html", mode="login", email=email,
+                          error=f"Too many failed sign-ins. Try again in "
+                          f"{limits.describe(wait)}, or reset your password.",
+                          next=_safe_next(next), status_code=429)
+
         with Session() as s:
             user = s.scalars(select(User).where(User.email == email)).first()
             if user is None:
@@ -364,6 +404,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ok = False
             else:
                 ok = security.verify_password(password, user.password_hash)
+        with Session.begin() as s:
+            if ok:
+                limits.clear(s, "login", email=email)
+            else:
+                limits.record(s, "login", email=email, ip=ip)
         if not ok:
             return render(request, "auth.html", mode="login", email=email,
                           error="That email and password do not match an account.",
@@ -383,6 +428,96 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ))
         response = RedirectResponse("/", status_code=303)
         response.delete_cookie(COOKIE, path="/")
+        return response
+
+    # -- password reset ----------------------------------------------------
+    #
+    # The request page answers identically whether or not the email has an
+    # account, and the email goes out after the response, so neither the
+    # page nor its timing says which emails are registered. Tokens are
+    # random, stored hashed, single-use, and short-lived; using one signs the
+    # account out everywhere, because a reset is often a response to someone
+    # else having been signed in.
+
+    def base_url(request: Request) -> str:
+        return settings.base_url or str(request.base_url).rstrip("/")
+
+    def live_reset(s, token: str) -> PasswordReset | None:
+        return s.scalars(select(PasswordReset).where(
+            PasswordReset.token_hash == security.token_hash(token),
+            PasswordReset.used_at.is_(None),
+            PasswordReset.expires_at > utcnow(),
+        )).first()
+
+    @app.get("/forgot", response_class=HTMLResponse, include_in_schema=False)
+    def forgot_form(request: Request):
+        return render(request, "forgot.html", sent=False, email="", error=None)
+
+    @app.post("/forgot", include_in_schema=False)
+    def forgot(request: Request, background: BackgroundTasks,
+               email: Annotated[str, Form()]):
+        email = email.strip().lower()
+        ip = client_ip(request)
+        with Session.begin() as s:
+            wait = limits.retry_after(s, "reset", email=email, ip=ip)
+            if wait is not None:
+                return render(request, "forgot.html", sent=False, email=email,
+                              error=f"Too many reset requests. Try again in "
+                              f"{limits.describe(wait)}.", status_code=429)
+            limits.record(s, "reset", email=email, ip=ip)
+
+            user = s.scalars(select(User).where(User.email == email)).first()
+            if user is not None:
+                token = security.new_token()
+                now = utcnow()
+                # One live link at a time: a new request retires the old one.
+                s.execute(delete(PasswordReset).where(PasswordReset.user_id == user.id))
+                s.add(PasswordReset(
+                    user_id=user.id, token_hash=security.token_hash(token),
+                    created_at=now, expires_at=now + timedelta(minutes=settings.reset_minutes),
+                ))
+                link = f"{base_url(request)}/reset?token={token}"
+                background.add_task(mailer.send, Message(
+                    to=user.email,
+                    subject="Reset your locqa password",
+                    text=(
+                        "Someone asked to reset the password for this locqa account.\n\n"
+                        f"Set a new password here — the link works once, for "
+                        f"{settings.reset_minutes} minutes:\n\n{link}\n\n"
+                        "If it was not you, ignore this email; nothing has changed."
+                    ),
+                ))
+        return render(request, "forgot.html", sent=True, email=email, error=None)
+
+    @app.get("/reset", response_class=HTMLResponse, include_in_schema=False)
+    def reset_form(request: Request, token: str = ""):
+        with Session() as s:
+            valid = bool(token) and live_reset(s, token) is not None
+        return render(request, "reset.html", token=token if valid else "",
+                      valid=valid, error=None, status_code=200 if valid else 400)
+
+    @app.post("/reset", include_in_schema=False)
+    def reset(request: Request, token: Annotated[str, Form()],
+              password: Annotated[str, Form()]):
+        if len(password) < security.MIN_PASSWORD:
+            return render(request, "reset.html", token=token, valid=True, status_code=400,
+                          error=f"Use at least {security.MIN_PASSWORD} characters.")
+        with Session.begin() as s:
+            pending = live_reset(s, token)
+            if pending is None:
+                return render(request, "reset.html", token="", valid=False, error=None,
+                              status_code=400)
+            user_id = pending.user_id
+            pending.used_at = utcnow()
+            user = s.get(User, user_id)
+            user.password_hash = security.hash_password(password)
+            s.execute(delete(AuthSession).where(AuthSession.user_id == user_id))
+            s.execute(delete(PasswordReset).where(
+                PasswordReset.user_id == user_id, PasswordReset.id != pending.id,
+            ))
+            limits.clear(s, "login", email=user.email)
+        response = RedirectResponse("/runs", status_code=303)
+        start_session(user_id, response)
         return response
 
     # -- runs --------------------------------------------------------------
@@ -429,7 +564,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             run = Run(user_id=viewer.user_id, status=QUEUED, **fields)
             s.add(run)
             s.flush()
-            return run.id
+            run_id = run.id
+            jobs.notify_new_run(s, run_id)      # NOTIFY, delivered at commit
+        wakeup.notify()                         # the inline worker, if any
+        return run_id
 
     @app.post("/runs", include_in_schema=False)
     def create_run(

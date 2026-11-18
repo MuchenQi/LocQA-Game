@@ -41,7 +41,7 @@ import threading
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -231,14 +231,133 @@ def run_once(Session: sessionmaker, settings: Settings) -> int | None:
     return run_id
 
 
-def work(Session: sessionmaker, settings: Settings, stop: threading.Event) -> None:
-    """Process runs until `stop` is set. Polls when the queue is empty."""
+# -- waking an idle worker -----------------------------------------------------
+#
+# Polling once a second forever is the simple way to find new work, and the
+# expensive one: on a serverless Postgres (Neon) a query every second keeps
+# the database awake around the clock and spends its compute allowance doing
+# nothing. So an idle worker backs off — 1s, 2s, 4s … up to
+# idle_poll_max_seconds — and new work does not wait for the poll:
+#
+#   inline worker   the upload request sets a threading.Event (Wakeup)
+#   worker process  on Postgres, the upload's transaction sends NOTIFY and the
+#                   worker LISTENs (PgListener); on SQLite it only polls
+#
+# The poll remains as the safety net. A lapsed lease produces no notification,
+# so it is the poll that finds a run whose worker died.
+
+NOTIFY_CHANNEL = "locqa_runs"
+
+
+class Wakeup:
+    """In-process: the web app calls notify(), the inline worker wakes."""
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def notify(self) -> None:
+        self._event.set()
+
+    def wait(self, timeout: float, stop: threading.Event) -> bool:
+        fired = self._event.wait(timeout)       # stop also calls notify()
+        self._event.clear()
+        return fired
+
+
+class SleepWaiter:
+    """No way to be told about new work; just wait out the poll interval."""
+
+    def notify(self) -> None:
+        pass
+
+    def wait(self, timeout: float, stop: threading.Event) -> bool:
+        return stop.wait(timeout)
+
+
+class PgListener:
+    """A worker process on Postgres: LISTEN on a dedicated connection.
+
+    Waits in short slices so a shutdown request is seen within a second, and
+    reconnects on the next wait if the connection drops (a database restart
+    or a serverless compute going to sleep).
+    """
+
+    def __init__(self, conninfo: str) -> None:
+        self._conninfo = conninfo
+        self._conn = None
+
+    def _connect(self):
+        import psycopg
+
+        conn = psycopg.connect(self._conninfo, autocommit=True)
+        conn.execute(f"LISTEN {NOTIFY_CHANNEL}")
+        return conn
+
+    def notify(self) -> None:
+        pass
+
+    def wait(self, timeout: float, stop: threading.Event) -> bool:
+        import psycopg
+
+        remaining = timeout
+        while remaining > 0 and not stop.is_set():
+            slice_ = min(1.0, remaining)
+            try:
+                if self._conn is None:
+                    self._conn = self._connect()
+                for _ in self._conn.notifies(timeout=slice_, stop_after=1):
+                    return True
+            except psycopg.Error:
+                log.warning("LISTEN connection lost; reconnecting on next wait")
+                self.close()
+                stop.wait(slice_)
+            remaining -= slice_
+        return stop.is_set()
+
+    def close(self) -> None:
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:                   # noqa: BLE001
+                pass
+            self._conn = None
+
+
+def notify_new_run(session, run_id: int) -> None:
+    """Call inside the transaction that inserts a run. Delivered at commit."""
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": NOTIFY_CHANNEL, "payload": str(run_id)},
+        )
+
+
+def listener_for(engine) -> PgListener | SleepWaiter:
+    """The right waiter for a standalone worker process on this database."""
+    if engine.dialect.name == "postgresql":
+        conninfo = engine.url.set(drivername="postgresql").render_as_string(
+            hide_password=False
+        )
+        return PgListener(conninfo)
+    return SleepWaiter()
+
+
+def work(Session: sessionmaker, settings: Settings, stop: threading.Event,
+         waiter=None) -> None:
+    """Process runs until `stop` is set, backing off while the queue is empty."""
+    waiter = waiter or SleepWaiter()
+    delay = settings.poll_interval_seconds
     log.info("worker started")
     while not stop.is_set():
         try:
-            if run_once(Session, settings) is None:
-                stop.wait(settings.poll_interval_seconds)
+            if run_once(Session, settings) is not None:
+                delay = settings.poll_interval_seconds
+                continue                        # there may be more; look again now
         except Exception:                       # noqa: BLE001 - a worker must not die
             log.exception("worker loop error; continuing")
-            stop.wait(settings.poll_interval_seconds)
+        woken = waiter.wait(delay, stop)
+        delay = (
+            settings.poll_interval_seconds if woken
+            else min(delay * 2, settings.idle_poll_max_seconds)
+        )
     log.info("worker stopped")

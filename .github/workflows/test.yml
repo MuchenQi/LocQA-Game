@@ -1,0 +1,61 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The checker alone, as `pip install -e .` gives it: no web dependencies.
+  # The web tests must skip cleanly here, not fail on an import.
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e .
+      - run: python -m unittest discover -s tests -v
+
+  # The web front end on both databases it supports. SQLite is the local
+  # default; Postgres is production, and the only place FOR UPDATE SKIP
+  # LOCKED, LISTEN/NOTIFY, and the migration advisory lock actually run.
+  web:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        db: [sqlite, postgres]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: locqa
+          POSTGRES_PASSWORD: locqa
+          POSTGRES_DB: locqa_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U locqa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      LOCQA_TEST_DATABASE_URL: ${{ matrix.db == 'postgres' && 'postgresql://locqa:locqa@localhost:5432/locqa_test' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[web]"
+      - run: python -m unittest discover -s tests -v
+      # Models and migrations must agree; a model change without a revision
+      # fails here as well as in TestMigrations.
+      - name: alembic check
+        if: matrix.db == 'postgres'
+        env:
+          DATABASE_URL: postgresql://locqa:locqa@localhost:5432/locqa_test
+        run: python -m locqa_web.migrate && alembic check
