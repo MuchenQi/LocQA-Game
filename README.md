@@ -53,9 +53,12 @@ makes it usable in a pipeline. Tier 2 is the part that needs the graph.
 | `consistency.source` | One source string rendered several ways |
 | `consistency.target` | Several source strings collapsed into one target |
 
-## Tier 2 — graph-level
+## Tier 2 — graph- and voice-level
 
-These require branch structure and produce nothing on a flat file.
+The `graph.*` checks require branch structure and are skipped on a flat file.
+The `voice.*` checks need speaker attribution instead, which Ren'Py carries
+natively, XLIFF through a `speaker` note, and a loc sheet through a speaker
+column.
 
 | Check | What it catches |
 |---|---|
@@ -97,9 +100,17 @@ not a fourteen-character item name is a bug that surfaces in one save file out
 of ten. Length and kinsoku checks wrap the same expanded string, so the line
 break lands where it will actually land.
 
-**Overlapping findings are collapsed.** A string that overflows its width will
-trivially exceed its line budget too; reporting both is one bug counted twice,
-and doubled counts are how a QA report loses a reviewer's trust.
+**One bug, one finding.** A string that overflows its width will trivially
+exceed its line budget too; a polite menu option among plain ones is trivially
+also the wrong grammatical shape. Reporting both is one bug counted twice, and
+doubled counts are how a QA report loses a reviewer's trust. The runner drops
+exact repeats; deciding that two different findings are the same bug needs
+knowledge only the check has, so each check that can overlap with itself
+reports the more specific finding and suppresses the other.
+
+**Layout is measured on the rendered string.** Markup is removed and
+placeholders are expanded before anything is measured or wrapped, so
+`<b>決定</b>` costs four units, not eleven.
 
 **The register classifier refuses to guess.** 体言止め, interjections, and
 fragments are extremely common in game dialogue and carry no register
@@ -178,7 +189,7 @@ locqa/
   htmlreport.py     proof sheet with the character grid
   pseudo.py         pseudolocalization
   cli.py            check · graph · pseudo · checks, and the exit codes
-tests/              68 tests, stdlib unittest
+tests/              89 tests, stdlib unittest
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
 eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
 ```
@@ -206,15 +217,19 @@ shared their blind spot.
 
 Current seed set is 35 self-authored lines, which is a tenth of the target and
 not a publishable number. `eval/README.md` says so, and the threshold sweep
-reports that it cannot yet select a value — with 2 positives, 18 of 45
-combinations tie. `MIN_LINES` and `MIN_RATIO` remain unvalidated intuition until
-the set grows.
+reports that it cannot yet select a value. The set has two register-drift
+positives, but one is a menu choice, which `voice.register` never judges, so
+only one is in scope, and 40 of 45 combinations tie (`eval/FINDINGS.md` 006).
+`MIN_LINES` and `MIN_RATIO` remain unvalidated intuition until the set grows.
 
 ```bash
-python eval/ingest.py FILE  # any parsable script → label-ready rows
+python eval/ingest.py FILE --append  # any parsable script → label-ready rows
 python eval/evaluate.py     # confusion matrix + error list + anchoring check
 python eval/sweep.py        # precision/recall across thresholds
 ```
+
+`ingest.py` writes to `eval/labels.csv` by default and refuses to replace an
+existing file: pass `--append` to add rows, or `--force` to overwrite.
 
 `ingest.py --predict` can pre-fill the classifier's guess to speed up labeling,
 but it writes into `register_pred`, never `register_gold`, and holds back a
@@ -232,6 +247,14 @@ the log of what each run caught.
   register-ambiguous) classifies as plain, and `お待ちを。` (美化語 with elided
   ください) classifies as neutral. Both are single-example failures, and patching
   them now would be over-fitting — see `eval/FINDINGS.md` 002.
+- The 一人称 detector requires a pronoun to be followed by a particle,
+  suffix, or punctuation, and a hiragana pronoun to not follow hiragana, so
+  that そのうち and 私立 are not read as pronouns. The cost is recall:
+  `でもぼくは` is missed. It still attributes pronouns inside quotations to
+  the speaker (`eval/FINDINGS.md` 005).
+- `graph.merge_register` compares the last line of each incoming path
+  regardless of who spoke it, so two speakers who are each consistent can
+  still read as a conflict. It is a MINOR check for that reason.
 - A learned classifier over a tagged corpus is the obvious next step. The rules
   exist to be the baseline it has to beat, and `eval/` is how that comparison
   gets made.
@@ -239,7 +262,9 @@ the log of what each run caught.
   where a context bug is possible; a human confirms.
 - The Ren'Py parser recovers control flow, not full semantics: conditional
   bodies contribute their edges, but `if` guards on choices are ignored, so
-  reachability is an upper bound.
+  reachability is an upper bound. The exception is a computed target —
+  `jump expression` or `call expression` — which cannot be followed, so a
+  label reached only that way is reported unreachable.
 - Only EN → JA target rules are implemented. The tier-1 engine and the graph
   tier are language-neutral; `checks/japanese.py` and `checks/voice.py` are
   the locale-specific surface.

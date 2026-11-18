@@ -12,7 +12,7 @@ from typing import Iterable
 
 from ..model import Finding, Script, Severity, display_width, iter_lines, wrap_by_width
 from .base import Check, Config, register
-from .integrity import expand_placeholders, extract_placeholders, extract_tags
+from .integrity import extract_placeholders, extract_tags, layout_text
 
 KANA = r"\u3040-\u309F\u30A0-\u30FF"
 KANJI = r"\u4E00-\u9FFF\u3400-\u4DBF"
@@ -265,8 +265,11 @@ class Kinsoku(Check):
             if not seg.is_translated:
                 continue
             if width:
-                expanded = expand_placeholders(
-                    seg.target, config.placeholder_widths, config.default_placeholder_width
+                # The same laid-out string length.budget measures, so the two
+                # checks agree on where the line breaks fall.
+                expanded = layout_text(
+                    seg.target, config.placeholder_widths, config.default_placeholder_width,
+                    also=seg.source,
                 )
                 lines = wrap_by_width(expanded, width, config.ambiguous_wide)
             else:
@@ -340,8 +343,8 @@ class Spacing(Check):
 class NumberWidth(Check):
     id = "ja.number_width"
     tier = 1
-    title = "Digit and Latin width consistency"
-    description = "Mixed half-width and full-width digits or Latin letters within one file."
+    title = "Digit width consistency"
+    description = "Mixed half-width and full-width digits within one file."
     default_severity = Severity.MINOR
 
     FW_DIGIT = re.compile(r"[０-９]")

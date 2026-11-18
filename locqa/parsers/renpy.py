@@ -35,7 +35,10 @@ KEYWORDS = frozenset("""
 _LABEL = re.compile(r"^label\s+(?P<name>[\w.]+)\s*(?:\(.*\))?\s*:\s*$")
 _MENU = re.compile(r"^menu\s*(?:[\w.]+\s*)?:\s*$")
 _JUMP = re.compile(r"^jump\s+(?P<label>[\w.]+)\s*$")
-_CALL = re.compile(r"^call\s+(?P<label>[\w.]+)")
+# `call screen inventory` shows a screen and `call expression x` computes its
+# target at runtime; neither names a label, so neither may become an edge to
+# a label called "screen" or "expression".
+_CALL = re.compile(r"^call\s+(?!(?:screen|expression)\b)(?P<label>[\w.]+)")
 _RETURN = re.compile(r"^return\b")
 _IF = re.compile(r"^(?P<kind>if|elif|else)\b.*:\s*$")
 _CHARACTER = re.compile(

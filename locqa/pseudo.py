@@ -13,6 +13,7 @@ the pseudolocalizer is broken.
 from __future__ import annotations
 
 import math
+import re
 
 from .checks.integrity import tokens
 
@@ -22,15 +23,16 @@ from .checks.integrity import tokens
 ACCENTS = {
     "a": "á", "b": "ƀ", "c": "ç", "d": "ð", "e": "é", "f": "ƒ", "g": "ğ",
     "h": "ĥ", "i": "í", "j": "ĵ", "k": "ķ", "l": "ĺ", "m": "ɱ", "n": "ñ",
-    "o": "ó", "p": "þ", "q": " q", "r": "ŕ", "s": "ŝ", "t": "ţ", "u": "ú",
+    "o": "ó", "p": "þ", "q": "ɋ", "r": "ŕ", "s": "ŝ", "t": "ţ", "u": "ú",
     "v": "ṽ", "w": "ŵ", "x": "ẋ", "y": "ý", "z": "ž",
     "A": "Á", "B": "Ɓ", "C": "Ç", "D": "Ð", "E": "É", "F": "Ƒ", "G": "Ğ",
     "H": "Ĥ", "I": "Í", "J": "Ĵ", "K": "Ķ", "L": "Ĺ", "M": "Ϻ", "N": "Ñ",
-    "O": "Ó", "P": "Þ", "Q": "Q", "R": "Ŕ", "S": "Ŝ", "T": "Ţ", "U": "Ú",
+    "O": "Ó", "P": "Þ", "Q": "Ǫ", "R": "Ŕ", "S": "Ŝ", "T": "Ţ", "U": "Ú",
     "V": "Ṽ", "W": "Ŵ", "X": "Ẋ", "Y": "Ý", "Z": "Ž",
 }
 
 PAD = "·"
+_ESCAPE = re.compile(r"\\[nrt\\]")
 BRACKETS = ("⟦", "⟧")
 
 
@@ -49,7 +51,12 @@ def pseudolocalize(
     if not text:
         return f"{brackets[0]}{brackets[1]}"
 
-    protected = [(t.start, t.end) for t in tokens(text)]
+    # Escapes are machinery too: loc sheets store a break as backslash-n, and
+    # accenting the n turns `\n` into `\ñ` — a build with no line breaks.
+    protected = sorted(
+        [(t.start, t.end) for t in tokens(text)]
+        + [m.span() for m in _ESCAPE.finditer(text)]
+    )
 
     out: list[str] = []
     prose = 0

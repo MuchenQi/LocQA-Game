@@ -7,12 +7,14 @@ it was handed.
 
 The runner owns three things the checks deliberately do not: reach weighting,
 duplicate collapsing, and sort order. Keeping those central is what makes a
-report's counts trustworthy — a check cannot inflate its own priority, and two
-checks cannot report the same bug twice.
+report's counts trustworthy — a check cannot inflate its own priority, and an
+exact repeat is reported once. Deciding that two *different* findings are one
+bug needs knowledge only the check has, so that part lives in the checks.
 """
 
 from __future__ import annotations
 
+import difflib
 import os
 from dataclasses import dataclass, field
 from typing import Iterable, Sequence
@@ -79,6 +81,22 @@ class Config:
     path: str = ""                              # where this was loaded from, for reports
 
     def __post_init__(self) -> None:
+        # An override naming a check that does not exist is a typo, and a typo
+        # here is the silent-downgrade failure parse_severity exists to stop:
+        # `placeholder.parit: info` would leave the real check at BLOCKER while
+        # its author believes it was quietened, or the reverse. Checks must
+        # therefore be registered before a Config that overrides them is built.
+        known = registry() if self.severity_overrides else {}
+        unknown = sorted(k for k in self.severity_overrides if k not in known)
+        if unknown:
+            hints = []
+            for key in unknown:
+                close = difflib.get_close_matches(key, known, n=1)
+                hints.append(f"{key!r}" + (f" (did you mean {close[0]!r}?)" if close else ""))
+            raise ValueError(
+                f"severity_overrides names unknown check(s): {', '.join(hints)}. "
+                "Run `locqa checks` for the list."
+            )
         self.severity_overrides = {
             k: parse_severity(v) for k, v in self.severity_overrides.items()
         }
@@ -121,7 +139,10 @@ class Config:
                 f"{path}: unknown config key(s): {', '.join(unknown)}. "
                 f"Known keys: {', '.join(sorted(known))}"
             )
-        return cls(path=os.path.abspath(path), **raw)
+        try:
+            return cls(path=os.path.abspath(path), **raw)
+        except ValueError as exc:
+            raise ValueError(f"{path}: {exc}") from None
 
 
 # -- the check protocol ------------------------------------------------------

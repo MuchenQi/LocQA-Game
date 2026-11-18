@@ -145,11 +145,18 @@ def parse(path: str, **_) -> Script:
             def cell(field: str) -> str:
                 return (row.get(cols[field]) or "").strip() if field in cols else ""
 
+            def text(field: str) -> str:
+                # Source and target keep their whitespace. str.strip() also
+                # removes U+3000, and a leading full-width space is the most
+                # common IME artifact there is — stripping it here would hide
+                # it from ja.spacing, which exists to report it.
+                return row.get(cols[field]) or ""
+
             seg_id = cell("id") or f"row{line}"
             segment = Segment(
                 id=seg_id,
-                source=cell("source"),
-                target=cell("target"),
+                source=text("source"),
+                target=text("target"),
                 node_id=cell("node_id") or None,
                 speaker=cell("speaker") or None,
                 max_width=_int(cell("max_width"), path, line, cols.get("max_width", "")),

@@ -19,7 +19,7 @@ from ..model import (
     display_width, iter_lines, normalize_breaks, wrap_by_width,
 )
 from .base import Check, Config, register
-from .integrity import expand_placeholders
+from .integrity import layout_text
 from .japanese import _strip_markup
 
 _WHITESPACE = re.compile(r"\s+")
@@ -59,11 +59,12 @@ class LengthBudget(Check):
             if not _checkable(seg):
                 continue
 
-            expanded = expand_placeholders(
-                seg.target, config.placeholder_widths, config.default_placeholder_width
+            expanded = layout_text(
+                seg.target, config.placeholder_widths, config.default_placeholder_width,
+                also=seg.source,
             )
             # Normalized here as well as inside wrap_by_width, because the
-            # total width below measures `expanded` directly.
+            # per-line widths below measure `expanded` directly.
             expanded = normalize_breaks(expanded)
             width = seg.max_width or config.default_max_width
 
@@ -76,18 +77,32 @@ class LengthBudget(Check):
                 if len(lines) <= budget_lines:
                     continue
 
-                total = display_width(expanded, config.ambiguous_wide)
-                if budget_lines == 1:
+                hard = iter_lines(expanded)
+                widest = max(display_width(line, config.ambiguous_wide) for line in hard)
+                if budget_lines == 1 and len(hard) == 1:
                     # Framed as width, because that is the budget the UI team
                     # quoted and the number the reviewer has to act on.
                     yield self.finding(
                         config,
-                        f"Target is {total} half-width units against a budget of {width}.",
+                        f"Target is {widest} half-width units against a budget of {width}.",
                         segment=seg,
                         excerpt=seg.target,
-                        suggestion=f"Shorten by {total - width} half-width units, "
+                        suggestion=f"Shorten by {widest - width} half-width units, "
                         f"or raise the budget.",
-                        meta={"width": total, "budget": width, "expanded": expanded},
+                        meta={"width": widest, "budget": width, "expanded": expanded},
+                    )
+                elif widest <= width:
+                    # Every line fits; the explicit breaks are what overflow
+                    # the box. A width message here would ask the reviewer to
+                    # shorten a string that is already short enough.
+                    yield self.finding(
+                        config,
+                        f"Target has {len(hard)} lines from explicit breaks; "
+                        f"the box holds {budget_lines}.",
+                        segment=seg,
+                        excerpt=seg.target,
+                        suggestion="Remove a line break, or raise the line budget.",
+                        meta={"lines": len(hard), "budget": budget_lines, "width": width},
                     )
                 else:
                     # Width overflow implies the line budget is blown, so only

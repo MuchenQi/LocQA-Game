@@ -100,25 +100,11 @@ class ChoiceParallelism(Check):
             if len(choices) < 2:
                 continue
 
-            shapes = {s.id: _ending_shape(s.target) for s in choices}
-            distinct = {v for v in shapes.values() if v}
-            if len(distinct) > 1:
-                counts: dict[str, int] = defaultdict(int)
-                for v in shapes.values():
-                    if v:
-                        counts[v] += 1
-                majority = max(counts, key=counts.get)
-                for seg in choices:
-                    if shapes[seg.id] and shapes[seg.id] != majority:
-                        yield self.finding(
-                            config,
-                            f"Option ends in {shapes[seg.id]} while its siblings end in {majority}. "
-                            "Menu options should be grammatically parallel.",
-                            segment=seg,
-                            excerpt=seg.target,
-                            meta={"shape": shapes[seg.id], "majority": majority},
-                        )
-
+            # Register first: a polite option among plain ones is also, almost
+            # always, a ます-shaped option among plain verbs. That is one bug,
+            # and the register finding is the one that names it, so an option
+            # it covers gets no shape finding.
+            reported: set[str] = set()
             registers = {s.id: classify_register(s.target) for s in choices}
             informative = {k: v for k, v in registers.items() if v in ("POLITE", "PLAIN")}
             if len(set(informative.values())) > 1:
@@ -130,6 +116,7 @@ class ChoiceParallelism(Check):
                 for sid, reg in informative.items():
                     if reg == dominant:
                         continue
+                    reported.add(sid)
                     yield self.finding(
                         config,
                         f"Option is in {_short(reg)} while its siblings are in {_short(dominant)}. "
@@ -139,6 +126,27 @@ class ChoiceParallelism(Check):
                         severity=Severity.MAJOR,
                         meta={"register": reg, "dominant": dominant},
                     )
+
+            shapes = {s.id: _ending_shape(s.target) for s in choices}
+            distinct = {v for v in shapes.values() if v}
+            if len(distinct) > 1:
+                counts: dict[str, int] = defaultdict(int)
+                for v in shapes.values():
+                    if v:
+                        counts[v] += 1
+                majority = max(counts, key=counts.get)
+                for seg in choices:
+                    if seg.id in reported:
+                        continue
+                    if shapes[seg.id] and shapes[seg.id] != majority:
+                        yield self.finding(
+                            config,
+                            f"Option ends in {shapes[seg.id]} while its siblings end in {majority}. "
+                            "Menu options should be grammatically parallel.",
+                            segment=seg,
+                            excerpt=seg.target,
+                            meta={"shape": shapes[seg.id], "majority": majority},
+                        )
 
 
 @register
@@ -156,18 +164,21 @@ class BranchAnaphora(Check):
             parents = preds.get(node.id, [])
             if len(parents) < 2:
                 continue
-            for seg in script.segments_of(node.id):
-                if not seg.is_translated or seg.is_choice:
-                    continue
+            # Only the node's first line follows a parent. Every later line
+            # follows the line before it in this same node, which is one
+            # writer's sequential text and not a merge at all.
+            seg = next((s for s in script.segments_of(node.id) if not s.is_choice), None)
+            if seg is not None and seg.is_translated:
                 opener = _anaphoric_opener(seg.target)
                 if not opener:
                     continue
                 parent_lines = []
                 for pid in parents[:3]:
-                    for ps in script.segments_of(pid):
-                        if ps.is_translated or ps.source:
-                            parent_lines.append(f"{pid}: {(ps.target or ps.source)[:28]}")
-                            break
+                    last = _last_line(script, pid)
+                    if last is not None:
+                        parent_lines.append(f"{pid}: {(last.target or last.source)[:28]}")
+                    else:
+                        parent_lines.append(pid)
                 yield self.finding(
                     config,
                     f"Opens with 「{opener}」, which refers back to the previous line — but this "
@@ -197,7 +208,14 @@ class MergeRegisterConflict(Check):
                 continue
             registers: dict[str, str] = {}
             for pid in parents:
-                for ps in script.segments_of(pid):
+                # The register a player carries into the merge is that of the
+                # last line they heard on the way in, so read each parent
+                # backwards. Reading forwards took a parent's opening line,
+                # which can be a whole scene away from the merge. Choices are
+                # skipped for the reason given in _last_line.
+                for ps in reversed(script.segments_of(pid)):
+                    if ps.is_choice:
+                        continue
                     reg = classify_register(ps.target)
                     if reg in ("POLITE", "PLAIN"):
                         registers[pid] = reg
@@ -248,6 +266,18 @@ def _ending_shape(text: str) -> str | None:
     for name, pattern in ENDING_SHAPES:
         if pattern.search(text):
             return name
+    return None
+
+
+def _last_line(script: Script, node_id: str) -> Segment | None:
+    """The last spoken line in a node — what a player heard just before leaving it.
+
+    Choices are skipped: a menu node's segments are every option, and the last
+    one listed is not the one the player picked.
+    """
+    for seg in reversed(script.segments_of(node_id)):
+        if not seg.is_choice and (seg.target or seg.source):
+            return seg
     return None
 
 

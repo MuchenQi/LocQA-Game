@@ -20,9 +20,10 @@ the exclusion below so the committed numbers can be understood as a subset.
 ## Adding a source
 
 1. Fetch into `corpus/`, which is ignored.
-2. `python eval/ingest.py corpus/<file> --sample N --note "<source, licence>"`
+2. `python eval/ingest.py corpus/<file> --append --sample N --note "<source, licence>"`
    — the `--note` lands in the `notes` column of every row it writes, so
-   provenance travels with the label rather than living only here.
+   provenance travels with the label rather than living only here. Without
+   `--append` the script refuses to touch an existing `labels.csv`.
 3. Label per `GUIDELINES.md`.
 4. Add a row to the table below.
 5. Commit `labels.csv`. Never `corpus/`.

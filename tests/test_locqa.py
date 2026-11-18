@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import csv
 import os
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -11,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from locqa import Config, Script, Segment, Severity, load, run_checks, select  # noqa: E402
 from locqa.checks.graph import _ending_shape  # noqa: E402
 from locqa.checks.integrity import extract_placeholders, extract_tags  # noqa: E402
-from locqa.checks.voice import classify_register  # noqa: E402
+from locqa.checks.voice import _first_person, classify_register  # noqa: E402
 from locqa.model import Node, display_width, wrap_by_width  # noqa: E402
 from locqa.parsers.sheet import resolve_columns  # noqa: E402
 from locqa.pseudo import pseudolocalize  # noqa: E402
@@ -135,6 +138,12 @@ class TestJapaneseChecks(unittest.TestCase):
         f = run(s, ["ja.kinsoku"])
         self.assertTrue(any("行頭禁則" in x.message for x in f))
 
+    def test_kinsoku_wraps_without_markup(self):
+        # Twelve cells of text fit a 24-unit line exactly; the color tags must
+        # not push the last character onto a line of its own.
+        s = build([("x", "{color=#f00}スロットにセーブしました{/color}")], max_width=24)
+        self.assertEqual(run(s, ["ja.kinsoku"]), [])
+
     def test_wave_dash_only_fires_on_mixed_usage(self):
         consistent = build([("a", "またね〜"), ("b", "いくよ〜")])
         self.assertEqual(run(consistent, ["ja.wave_dash"]), [])
@@ -162,6 +171,19 @@ class TestLength(unittest.TestCase):
     def test_within_budget_passes(self):
         s = build([("Start", "はじめる")], max_width=16, max_lines=1)
         self.assertEqual(run(s, ["length.budget"]), [])
+
+    def test_markup_occupies_no_width(self):
+        # <b>決定</b> renders four units wide; the tags are not drawn.
+        s = build([("<b>OK</b>", "<b>決定</b>")], max_width=8)
+        self.assertEqual(run(s, ["length.budget"]), [])
+
+    def test_explicit_break_is_reported_as_lines_not_width(self):
+        # Both lines fit 20 units; the break is what overflows a one-line box.
+        s = build([("Yes\\nNo", "はい\\nいいえ")], max_width=20)
+        f = run(s, ["length.budget"])
+        self.assertEqual(len(f), 1)
+        self.assertIn("explicit breaks", f[0].message)
+        self.assertNotIn("Shorten by -", f[0].suggestion)
 
 
 class TestTerminology(unittest.TestCase):
@@ -231,6 +253,27 @@ class TestVoiceChecks(unittest.TestCase):
     def test_consistent_pronoun_passes(self):
         s = self._speaker_script(["俺は行く。", "俺の話だ。", "俺は待たない。"])
         self.assertEqual(run(s, ["voice.first_person"]), [])
+
+    def test_pronoun_not_matched_inside_other_words(self):
+        for text in ["そのうちわかる。", "おれいを言う。", "ぼくじょうへ行く。", "私立学校だ。"]:
+            self.assertIsNone(_first_person(text), text)
+
+    def test_pronoun_detected_with_particles_and_suffixes(self):
+        self.assertEqual(_first_person("俺は行く。"), "俺")
+        self.assertEqual(_first_person("僕たちは知られている。"), "僕")
+        self.assertEqual(_first_person("あたしが行く！"), "あたし")
+        self.assertEqual(_first_person("ねえ、うちのこと好き？"), "うち")
+
+    def test_earliest_pronoun_wins(self):
+        # 僕 is earlier in FIRST_PERSON, so list order would get this wrong.
+        self.assertEqual(_first_person("俺は、僕とは違う。"), "俺")
+
+    def test_final_particle_read_per_sentence(self):
+        # ぞ closes the first sentence of one line and the whole of another:
+        # two uses, so not a one-off.
+        lines = ["遅いぞ。俺は二度も待たない。", "行くぞ。"] + ["扉だ。"] * 7
+        s = self._speaker_script(lines)
+        self.assertEqual(run(s, ["voice.final_particle"]), [])
 
     def test_register_drift(self):
         s = self._speaker_script(
@@ -309,6 +352,51 @@ class TestGraphChecks(unittest.TestCase):
         s.add_node(Node(id="a", successors=["nowhere"]))
         self.assertTrue(run(s, ["graph.dangling"]))
 
+    def _merge(self):
+        s = Script(name="t")
+        for nid, succ in [("p1", ["m"]), ("p2", ["m"]), ("m", [])]:
+            s.add_node(Node(id=nid, successors=succ))
+        s.entry_nodes = ["p1"]
+        return s
+
+    def test_anaphora_only_on_the_first_line_of_a_merge(self):
+        # これ on the second line refers to the first line, not to a parent.
+        s = self._merge()
+        s.add_segment(Segment(id="m1", source="x", target="門が開いた。", node_id="m"))
+        s.add_segment(Segment(id="m2", source="x", target="これは何だ？", node_id="m"))
+        self.assertEqual(run(s, ["graph.anaphora"]), [])
+
+    def test_anaphora_quotes_each_parents_last_line(self):
+        s = self._merge()
+        s.add_segment(Segment(id="a1", source="x", target="最初の行。", node_id="p1"))
+        s.add_segment(Segment(id="a2", source="x", target="直前の行。", node_id="p1"))
+        s.add_segment(Segment(id="m1", source="x", target="そうか。", node_id="m"))
+        f = run(s, ["graph.anaphora"])
+        self.assertEqual(len(f), 1)
+        self.assertIn("直前の行", f[0].suggestion)
+        self.assertNotIn("最初の行", f[0].suggestion)
+
+    def test_merge_register_reads_the_last_line_of_each_parent(self):
+        # p1 opens polite but hands over in plain form, as p2 does: no conflict.
+        s = self._merge()
+        s.add_segment(Segment(id="a1", source="x", target="行きます。", node_id="p1"))
+        s.add_segment(Segment(id="a2", source="x", target="行くぞ。", node_id="p1"))
+        s.add_segment(Segment(id="b1", source="x", target="扉だ。", node_id="p2"))
+        s.add_segment(Segment(id="m1", source="x", target="門。", node_id="m"))
+        self.assertEqual(run(s, ["graph.merge_register"]), [])
+
+    def test_choice_parallelism_one_finding_per_option(self):
+        # A polite option among plain ones is one bug, not a register bug and
+        # a shape bug.
+        s = Script(name="t")
+        s.add_node(Node(id="m", kind="menu", successors=["x"]))
+        s.add_node(Node(id="x"))
+        for i, t in enumerate(["謝る", "尋ねます", "言わない"]):
+            s.add_segment(Segment(id=f"c{i}", source="x", target=t, node_id="m", is_choice=True))
+        f = run(s, ["graph.choice_parallelism"])
+        self.assertEqual(len(f), 1)
+        self.assertIs(f[0].severity, Severity.MAJOR)
+
 
 class TestSheetParser(unittest.TestCase):
     def test_column_synonyms(self):
@@ -327,6 +415,15 @@ class TestSheetParser(unittest.TestCase):
         s = load(os.path.join(SAMPLES, "aetherbound_ui.csv"))
         self.assertEqual(len(s), 27)
         self.assertEqual(s.segments["UI_BTN_CANCEL"].max_width, 8)
+
+    def test_target_whitespace_survives_for_spacing_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.csv")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write("key,english,japanese\nA,Hello,　こんにちは\n")
+            s = load(path)
+        self.assertEqual(s.segments["A"].target, "　こんにちは")
+        self.assertTrue(run(s, ["ja.spacing"]))
 
 
 class TestXliffParser(unittest.TestCase):
@@ -387,6 +484,16 @@ class TestRenpyParser(unittest.TestCase):
         # chapter_two ends in `return`, so it must not fall through.
         self.assertEqual(self.s.nodes["chapter_two"].successors, [])
 
+    def test_call_screen_is_not_a_label_edge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t.rpy")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write('label start:\n    "Hello."\n    call screen inventory\n'
+                         '    call expression target_label\n    "Bye."\n    return\n')
+            s = load(path)
+        self.assertEqual(s.nodes["start"].successors, [])
+        self.assertEqual(run(s, ["graph.dangling"]), [])
+
 
 class TestPseudo(unittest.TestCase):
     def test_placeholders_survive(self):
@@ -400,6 +507,88 @@ class TestPseudo(unittest.TestCase):
 
     def test_tags_survive(self):
         self.assertIn("<b>", pseudolocalize("<b>Warning</b>"))
+
+    def test_q_is_accented_without_inserting_a_space(self):
+        out = pseudolocalize("Quit quickly", expansion=1.0)
+        self.assertEqual(out.count(" "), 1)
+        self.assertNotIn("q", out.lower())
+
+    def test_escaped_line_break_survives(self):
+        out = pseudolocalize("Line one\\nLine two")
+        self.assertIn("\\n", out)
+        self.assertNotIn("\\ñ", out)
+
+
+class TestConfig(unittest.TestCase):
+    def test_unknown_override_is_rejected_with_a_suggestion(self):
+        with self.assertRaises(ValueError) as ctx:
+            Config(severity_overrides={"placeholder.parit": "info"})
+        self.assertIn("placeholder.parity", str(ctx.exception))
+
+    def test_known_override_is_accepted(self):
+        cfg = Config(severity_overrides={"consistency.target": "info"})
+        self.assertIs(cfg.severity_overrides["consistency.target"], Severity.INFO)
+
+
+EVAL = os.path.join(os.path.dirname(__file__), "..", "eval")
+
+
+def _eval_module(name):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(f"eval_{name}", os.path.join(EVAL, f"{name}.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class TestEvalHarness(unittest.TestCase):
+    SHEET = os.path.join(SAMPLES, "aetherbound_ui.csv")
+
+    def _ingest(self, *args):
+        return subprocess.run(
+            [sys.executable, os.path.join(EVAL, "ingest.py"), self.SHEET, *args],
+            capture_output=True, text=True, encoding="utf-8",
+            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+        )
+
+    def test_ingest_refuses_to_overwrite_existing_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "labels.csv")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("line_id,register_gold\nkeep,POLITE\n")
+            result = self._ingest("--out", out)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--append", result.stderr)
+            with open(out, encoding="utf-8") as fh:
+                self.assertIn("keep,POLITE", fh.read())
+
+    def test_append_with_predict_keeps_old_rows_and_adds_columns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "labels.csv")
+            with open(out, "w", encoding="utf-8") as fh:
+                fh.write("line_id,speaker,target_ja,register_gold\nkeep,K,行く。,PLAIN\n")
+            result = self._ingest("--out", out, "--append", "--predict")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            with open(out, encoding="utf-8", newline="") as fh:
+                reader = csv.DictReader(fh)
+                rows = list(reader)
+            self.assertIn("blind", reader.fieldnames)
+            self.assertEqual(rows[0]["register_gold"], "PLAIN")
+            self.assertTrue(all(r["blind"] in ("0", "1") for r in rows[1:]))
+
+    def test_renpy_ids_survive_an_inserted_line(self):
+        ingest = _eval_module("ingest")
+        first = Segment(id="start#3", source="Move.", node_id="start")
+        shifted = Segment(id="start#4", source="Move.", node_id="start")
+        self.assertEqual(ingest.make_id("ch1.rpy", first), ingest.make_id("ch1.rpy", shifted))
+
+    def test_sweep_skips_choices_like_the_check(self):
+        sweep = _eval_module("sweep")
+        rows = list(sweep.load(os.path.join(EVAL, "labels.csv")))
+        _, gold, out_of_domain = sweep.build_script(rows)
+        self.assertIn("seed026", out_of_domain)
+        self.assertNotIn("seed026", gold)
 
 
 class TestEndToEnd(unittest.TestCase):

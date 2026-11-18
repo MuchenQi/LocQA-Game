@@ -42,9 +42,17 @@ def _write(text: str, out: str | None) -> None:
         with open(out, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
     else:
-        # Windows consoles default to a codepage that cannot encode Japanese;
-        # replacing is better than dying halfway through a report.
-        sys.stdout.write(text)
+        # Output piped on Windows defaults to a codepage that cannot encode
+        # Japanese. Replacing the unencodable characters is better than dying
+        # with exit 2 before a single finding is printed. PYTHONIOENCODING=utf-8
+        # (the Makefile sets it) avoids the substitution entirely.
+        try:
+            sys.stdout.write(text)
+        except UnicodeEncodeError:
+            encoding = sys.stdout.encoding or "ascii"
+            sys.stdout.flush()
+            sys.stdout.buffer.write(text.encode(encoding, errors="replace"))
+            sys.stdout.flush()
 
 
 def _threshold(value: str) -> Severity | None:

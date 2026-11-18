@@ -4,8 +4,8 @@ SHEET   = samples/aetherbound_ui.csv
 SCRIPT  = samples/aetherbound.rpy
 TRANS   = samples/aetherbound_ja.rpy
 
-# Japanese in the reports outlives a Windows console's default codepage only
-# if this is set; without it `make check` dies partway through a finding.
+# Japanese in the reports survives a Windows pipe's default codepage only if
+# this is set; without it the CLI substitutes ? for every unencodable character.
 export PYTHONIOENCODING = utf-8
 
 .PHONY: help install test eval sweep demo check graph pseudo lint clean

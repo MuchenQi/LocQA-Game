@@ -21,7 +21,7 @@ the check adds two thresholds (`MIN_LINES`, `MIN_RATIO`) that the classifier
 knows nothing about. `sweep.py` is what tests those.
 
 ```bash
-python eval/ingest.py FILE      # any parsable script → label-ready rows
+python eval/ingest.py FILE --append   # any parsable script → label-ready rows
 python eval/evaluate.py         # confusion matrix, error list, anchoring check
 python eval/evaluate.py --errors
 python eval/sweep.py            # precision/recall across both thresholds
@@ -36,7 +36,7 @@ python eval/sweep.py --plot sweep.png
 |---|---|
 | lines | 35 |
 | speakers | 4 (13 / 12 / 5 / 5) |
-| register-drift positives | 2 |
+| register-drift positives | 2 (1 in `voice.register`'s scope; the other is a menu choice) |
 | pronoun-drift positives | 1 |
 | register accuracy | 0.943 |
 | register macro F1 | 0.893 |
@@ -48,8 +48,9 @@ because the numbers above look respectable and are not yet evidence.
 1. **It is a tenth of the target.** ~350 lines, ~30 per speaker, is the point
    at which per-speaker checks can be evaluated at all. `evaluate.py` prints
    `← thin; 30+ needed for the drift sweep` against every speaker at present.
-2. **Two positives cannot select a threshold.** `sweep.py` reports several
-   settings tied at F1 1.000. A sweep this small selects noise, so `MIN_LINES`
+2. **One positive cannot select a threshold.** `sweep.py` reports 40 of 45
+   settings tied at F1 1.000 (`FINDINGS.md` 006 explains why it is one and not
+   two). A sweep this small selects noise, so `MIN_LINES`
    and `MIN_RATIO` remain unvalidated intuition. They have not been changed on
    the strength of it, and should not be.
 3. **The author wrote both the rules and the lines.** That is the exact bias

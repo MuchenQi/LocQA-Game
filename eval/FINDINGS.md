@@ -89,6 +89,10 @@ converging with a polite one.
 
 Both parents are plain. There was no conflict. The finding was an artifact.
 
+*Since revised:* the check now reads each parent's **last** line, the one the
+player hears just before the merge, and skips menu choices. The scenario above
+describes the code as it was.
+
 **What this shows.** A gap in a tier-1 classifier surfaced as a false positive
 in a tier-2 check two modules away, on a different node, with a plausible
 message. No amount of reading `graph.py` would have found it. The composition
@@ -109,7 +113,7 @@ MIN_LINES = 3, MIN_RATIO = 0.55  → F1 1.000
 
 with several settings tied at the top. With **2 register-drift positives** in
 the set, most of the 45 combinations are indistinguishable, and the winner is
-noise.
+noise. (After 006 there is only one positive in scope, and 40 of 45 tie.)
 
 **Neither threshold has been changed on the strength of this**, and neither
 should be until the set has 30+ positives. Reporting a tuned value from two
@@ -137,3 +141,30 @@ running across two segments). Held until the set has more quoted-speech rows
 than this one, so the fix can be evaluated rather than asserted.
 
 The first-person detector is at 0.971 accuracy and this is its only error.
+
+---
+
+## 006 — The sweep was scoring a positive the check cannot produce
+
+**Status:** fixed · **Found by:** reading `sweep.py` against `voice.py`
+
+`voice.register` skips menu choices (`_speaker_groups` filters `is_choice`).
+`sweep.py` built every labeled row as an ordinary line, because `labels.csv`
+had no way to say which rows were choices. So seed026:
+
+```
+[seed026]  Player  門とは何かを尋ねます   PLANTED choice register mismatch
+```
+
+was one of the sweep's two positives, and at the current setting the sweep
+"caught" it. The production check never would. Half of the sweep's recall
+came from a check configuration that does not ship.
+
+Fixed by adding an `is_choice` column (filled by `ingest.py`, set on
+seed025–029) and having the sweep build segments with it. Choice positives are
+now listed as out of scope rather than scored. That leaves **one** in-scope
+positive, and 40 of 45 threshold settings tie at F1 1.000, up from 18.
+
+**What this shows.** A harness is only evidence about the check it actually
+runs. The sweep and the check had drifted apart on one boolean, and the
+number still looked plausible. It looked better, in fact.

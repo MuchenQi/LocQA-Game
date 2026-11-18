@@ -16,6 +16,7 @@ detect.
 |---|---|---|
 | `line_id` | `ingest.py` | stable hash; never edit |
 | `speaker` | `ingest.py` | character name, or `Narrator` |
+| `is_choice` | `ingest.py` | `1` for a menu option, else `0`; never edit |
 | `source_en` | `ingest.py` | English source |
 | `target_ja` | `ingest.py` | Japanese target — **the thing you are judging** |
 | `register_gold` | you | `POLITE` · `PLAIN` · `NEUTRAL` · `MIXED` |
@@ -108,7 +109,10 @@ drift**. Set `is_drift=0` and say why in `notes`. Those rows are the valuable
 ones: they are what stops the check being tuned into a machine that flags
 every deliberate choice.
 
-Only `drift_type=register` rows count as positives for `sweep.py`.
+Only `drift_type=register` rows count as positives for `sweep.py`, and only
+when `is_choice=0`: `voice.register` never judges menu options, so the sweep
+lists choice positives separately instead of scoring them. Label them anyway.
+They are real drift, and `graph.choice_parallelism` is the check that owns them.
 
 ## Not being anchored
 

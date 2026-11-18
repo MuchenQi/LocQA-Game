@@ -18,7 +18,7 @@ import html
 from datetime import datetime
 
 from .checks.base import Config
-from .checks.integrity import expand_placeholders
+from .checks.integrity import layout_text
 from .model import (
     Finding, Script, Severity, display_width, normalize_breaks, wrap_by_width,
 )
@@ -219,8 +219,9 @@ def _grid(script: Script, finding: Finding, config: Config) -> str:
     rows = finding.meta.get("wrapped")
     if not rows:
         expanded = normalize_breaks(
-            expand_placeholders(
-                segment.target, config.placeholder_widths, config.default_placeholder_width
+            layout_text(
+                segment.target, config.placeholder_widths, config.default_placeholder_width,
+                also=segment.source,
             )
         )
         rows = (

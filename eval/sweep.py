@@ -39,25 +39,36 @@ def load(path: str) -> list[dict]:
         return [r for r in csv.DictReader(fh) if (r.get("target_ja") or "").strip()]
 
 
-def build_script(rows: list[dict]) -> tuple[Script, set[str]]:
-    """One segment per labeled line; gold positives are register-type drift."""
+def build_script(rows: list[dict]) -> tuple[Script, set[str], list[str]]:
+    """One segment per labeled line; gold positives are register-type drift.
+
+    Segments carry `is_choice`, because voice.register skips menu choices and
+    a sweep that builds them as ordinary lines is scoring a different check.
+    A register-drift positive on a choice is real drift — graph.choice_
+    parallelism's to catch — but outside this check's domain, so it is
+    returned separately rather than counted as a miss or, worse, as a hit
+    the production check could never produce.
+    """
     script = Script(name="eval")
     gold: set[str] = set()
+    out_of_domain: list[str] = []
     for r in rows:
         speaker = (r.get("speaker") or "").strip()
         if not speaker:
             continue
+        is_choice = (r.get("is_choice") or "").strip() == "1"
         script.add_segment(
             Segment(
                 id=r["line_id"],
                 source=r.get("source_en", ""),
                 target=r["target_ja"],
                 speaker=speaker,
+                is_choice=is_choice,
             )
         )
         if (r.get("is_drift") or "").strip() == "1" and (r.get("drift_type") or "").strip() == "register":
-            gold.add(r["line_id"])
-    return script, gold
+            (out_of_domain.append(r["line_id"]) if is_choice else gold.add(r["line_id"]))
+    return script, gold, out_of_domain
 
 
 def evaluate_at(script: Script, gold: set[str], min_lines: int, min_ratio: float) -> dict:
@@ -200,18 +211,26 @@ def main() -> None:
     args = ap.parse_args()
 
     rows = load(args.labels)
-    script, gold = build_script(rows)
+    script, gold, out_of_domain = build_script(rows)
 
     by_speaker = defaultdict(int)
     for seg in script:
-        by_speaker[seg.speaker] += 1
+        if not seg.is_choice:
+            by_speaker[seg.speaker] += 1
+    choices = sum(1 for seg in script if seg.is_choice)
 
     print("\nSWEEP INPUT")
     print("===========\n")
-    print(f"  {len(script)} lines, {len(by_speaker)} speakers, "
+    print(f"  {len(script) - choices} lines in scope, {len(by_speaker)} speakers, "
           f"{len(gold)} gold register-drift lines\n")
     for sp, n in sorted(by_speaker.items(), key=lambda kv: -kv[1]):
         print(f"    {n:>4}  {sp}")
+    if choices:
+        print(f"\n  {choices} menu-choice lines skipped, as voice.register skips them.")
+    if out_of_domain:
+        print(f"  {len(out_of_domain)} register-drift positive(s) are choices and not scored: "
+              f"{', '.join(out_of_domain)}")
+        print("  (graph.choice_parallelism is the check for those.)")
 
     if not gold:
         print("\n  No lines labeled is_drift=1 with drift_type=register.")
@@ -232,8 +251,8 @@ def main() -> None:
     print(f"  MIN_LINES = {best['min_lines']}, MIN_RATIO = {best['min_ratio']:.2f}  "
           f"→ F1 {best['f1']:.3f}\n")
 
-    if len(script) < 300:
-        print(f"  NOTE: {len(script)} lines and {len(gold)} positives. A sweep this")
+    if len(script) - choices < 300:
+        print(f"  NOTE: {len(script) - choices} lines and {len(gold)} positive(s). A sweep this")
         print("  small selects noise — several settings will tie, and the winner")
         print("  is not evidence. Grow the set before changing any threshold.\n")
 

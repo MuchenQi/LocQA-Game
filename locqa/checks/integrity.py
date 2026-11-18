@@ -163,24 +163,31 @@ def extract_tags(text: str, also: str = "") -> list[str]:
     return [t.text for t in tokens(text, also) if t.kind == "tag"]
 
 
-def expand_placeholders(
-    text: str, widths: dict[str, int] | None = None, default: int = 8
+def layout_text(
+    text: str,
+    widths: dict[str, int] | None = None,
+    default: int = 8,
+    also: str = "",
 ) -> str:
-    """Replace each placeholder with filler at its worst-case substituted width.
+    """The string as the engine lays it out: markup gone, placeholders at worst case.
 
     A textbox that fits `{ITEM}` but not a fourteen-character item name is a
-    bug that surfaces in one save file out of ten. Measuring the literal token
-    measures a string no player will ever see.
+    bug that surfaces in one save file out of ten, so each placeholder becomes
+    filler at its worst-case substituted width. Markup is removed outright:
+    `<b>決定</b>` occupies four units on screen, not eleven, and counting the
+    tags would report overflows that do not exist and move every wrap point.
+
+    `also` is the segment's other side, passed through to `tokens()` so tag
+    classification agrees with the parity checks.
     """
     widths = widths or {}
     out: list[str] = []
     cursor = 0
-    for t in tokens(text):
-        if t.kind != "placeholder":
-            continue
-        width = widths.get(t.text, widths.get(t.name, default))
+    for t in tokens(text, also):
         out.append(text[cursor:t.start])
-        out.append("X" * max(0, width))     # ASCII: one half-width unit per char
+        if t.kind == "placeholder":
+            width = widths.get(t.text, widths.get(t.name, default))
+            out.append("X" * max(0, width))     # ASCII: one half-width unit per char
         cursor = t.end
     out.append(text[cursor:])
     return "".join(out)

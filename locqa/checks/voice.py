@@ -39,6 +39,9 @@ FIRST_PERSON = [
 
 # 語尾 — sentence-final particles that carry persona.
 FINAL_PARTICLES = ["ぜ", "ぞ", "わ", "のよ", "かしら", "だい", "かい", "ですわ", "じゃ", "のう", "にゃ", "っす"]
+_PARTICLE_PATTERNS = [
+    (p, re.compile(re.escape(p) + r"[。！？…」』）]*$")) for p in FINAL_PARTICLES
+]
 
 # Sentence-final particles (ね・よ・な・か・の・さ・わ) attach after the polite
 # suffix without changing the register, so they must be allowed to trail.
@@ -199,8 +202,12 @@ class FinalParticleDrift(Check):
                 continue
             usage: dict[str, list[Segment]] = defaultdict(list)
             for seg in segs:
-                for particle in FINAL_PARTICLES:
-                    if re.search(re.escape(particle) + r"[。！？…]*$", _strip_markup(seg.target).strip()):
+                # Per sentence, not per segment: 遅いぞ。俺は二度も待たない。
+                # uses ぞ, and judging only the segment's last sentence would
+                # miss it and then report the speaker's next ぞ as a one-off.
+                ends = sentences(_strip_markup(seg.target))
+                for particle, pattern in _PARTICLE_PATTERNS:
+                    if any(pattern.search(s) for s in ends):
                         usage[particle].append(seg)
             for particle, hits in usage.items():
                 # One appearance across a large speaker set is the signal:
@@ -218,12 +225,33 @@ class FinalParticleDrift(Check):
                     )
 
 
+# What may follow a pronoun: a particle, a plural or reflexive suffix,
+# punctuation, or the end of the string. Without this, a substring scan reads
+# 私立 as 私, おれい (お礼) as おれ, and ぼくじょう (牧場) as ぼく.
+_PRONOUN_FOLLOW = r"(?=[はがのもをにへとやで、。！？…」』）\s]|たち|達|ら|自身|$)"
+_HIRAGANA = re.compile(r"^[ぁ-ゟ]+$")
+
+
+def _pronoun_pattern(pronoun: str) -> re.Pattern:
+    # A hiragana pronoun must also not continue a hiragana word, or そのうち
+    # ("eventually") reads as うち. This loses でもぼくは, where the preceding
+    # hiragana is a particle — precision over recall, as elsewhere in this module.
+    before = r"(?<![ぁ-ゟ])" if _HIRAGANA.match(pronoun) else ""
+    return re.compile(before + re.escape(pronoun) + _PRONOUN_FOLLOW)
+
+
+_PRONOUN_PATTERNS = [(p, _pronoun_pattern(p)) for p, _ in FIRST_PERSON]
+
+
 def _first_person(text: str) -> str | None:
+    """The first 一人称 in the line, by position."""
     text = _strip_markup(text)
-    for pronoun, _ in FIRST_PERSON:
-        if pronoun in text:
-            return pronoun
-    return None
+    hits = []
+    for pronoun, pattern in _PRONOUN_PATTERNS:
+        match = pattern.search(text)
+        if match:
+            hits.append((match.start(), -len(pronoun), pronoun))
+    return min(hits)[2] if hits else None
 
 
 def _jp(register: str) -> str:

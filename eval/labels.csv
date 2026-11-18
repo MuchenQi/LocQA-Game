@@ -1,36 +1,36 @@
-line_id,speaker,source_en,target_ja,register_gold,pronoun_gold,is_drift,drift_type,notes
-seed001,Narrator,Rain had been falling on the Aether Gate for three days.,エーテル門には三日間、雨が降り続いていた。,PLAIN,,,,self-authored seed; narration
-seed002,Narrator,The Gate answered with a sound like a held breath.,それでも門は、息を殺したような音で応えた。,PLAIN,,,,self-authored seed; narration
-seed003,Narrator,"The light folded inward, patient as water.",光は水のように辛抱強く、内側へと折りたたまれていった。,PLAIN,,,,self-authored seed; narration
-seed004,Narrator,"Beyond the Gate, the rain had never started.",門の向こうでは、雨は一度も降り始めてなどいなかった。,PLAIN,,,,self-authored seed; narration
-seed005,Kestrel,You're late. I don't wait twice.,遅いぞ。俺は二度も待たない。,PLAIN,俺,0,,self-authored seed
-seed006,Kestrel,Hmph. At least you know how to say it.,ふん。言い方くらいは知っているらしいな。,PLAIN,,0,,self-authored seed; i-adj + な
-seed007,Kestrel,It's a door. Doors open. That's all you need.,ただの扉だ。扉は開く。それで十分だろ。,PLAIN,,0,,self-authored seed
-seed008,Kestrel,Nothing to say? Good. Talking wastes daylight.,何も言わないのか。結構だ。喋るだけ日が暮れる。,PLAIN,,0,,self-authored seed
-seed009,Kestrel,Everything's impossible until it isn't. Move.,不可能なんてのは、そうでなくなるまでの話だ。行くぞ。,PLAIN,,0,,self-authored seed
-seed010,Kestrel,Stay close. I mean it.,離れるな。本気で言ってるぜ。,PLAIN,,0,,self-authored seed; 語尾 ぜ appears once
-seed011,Kestrel,"Whatever's on the other side, it knows we're here.",向こうに何がいるにせよ、僕たちがここにいることは知られている。,PLAIN,僕,1,pronoun,self-authored seed; PLANTED pronoun drift
-seed012,Kestrel,Then they're not records. They're dust.,なら記録じゃない。ただの埃だ。,PLAIN,,0,,self-authored seed
-seed013,Kestrel,Keep your guard up. I won't say it twice.,ガードを固めておけ。二度は言わない。,PLAIN,,0,,self-authored seed
-seed014,Kestrel,Don't move.,動くな。,NEUTRAL,,0,,self-authored seed; bare imperative is register-ambiguous
-seed015,Sister Aldis,Forgive him. He has been standing in the rain since dawn.,お許しください。彼は夜明けからずっと雨の中に立っておりました。,POLITE,,0,,self-authored seed
-seed016,Sister Aldis,That is more than most manage.,それだけでも大したものでございます。,POLITE,,0,,self-authored seed
-seed017,Sister Aldis,The Gate is older than the Compact that binds it.,あの門は、それを縛る盟約よりも古いのです。,POLITE,,0,,self-authored seed
-seed018,Sister Aldis,Silence has its own courtesy.,沈黙にも礼儀がある。,PLAIN,,1,register,self-authored seed; PLANTED register drift
-seed019,Sister Aldis,It recognizes you. That should not be possible.,あなたを認識しています。そんなはずはないのですが……,POLITE,,0,,self-authored seed
-seed020,Sister Aldis,We cannot stand here forever.,いつまでもここには居られません。,POLITE,,0,,self-authored seed
-seed021,Sister Aldis,Then we shall be introduced properly.,でしたら、きちんとご挨拶いたしましょう。,POLITE,,0,,self-authored seed
-seed022,Sister Aldis,The shrine keeps records no one has read in a century.,あの社には、百年誰も読んでいない記録が眠っております。,POLITE,,0,,self-authored seed
-seed023,Sister Aldis,"He means well, in his way.",彼なりに気遣っているのです。,POLITE,,0,,self-authored seed
-seed024,Sister Aldis,Please wait.,お待ちを。,POLITE,,0,,self-authored seed; elided ください
-seed025,Player,Apologize for the delay.,遅れたことを謝る,PLAIN,,0,,self-authored seed; menu choice
-seed026,Player,Ask what the Gate is.,門とは何かを尋ねます,POLITE,,1,register,self-authored seed; PLANTED choice register mismatch
-seed027,Player,Say nothing.,何も言わない,PLAIN,,0,,self-authored seed; menu choice
-seed028,Player,Step through the Gate.,門をくぐる,PLAIN,,0,,self-authored seed; menu choice
-seed029,Player,"Wait, and watch the light.",待って、光を見つめる,PLAIN,,0,,self-authored seed; menu choice
-seed030,Kestrel,Is that so.,そうか。,NEUTRAL,,0,,self-authored seed; interjection
-seed031,Kestrel,The Aether Gate.,エーテル門,NEUTRAL,,0,,self-authored seed; 体言止め
-seed032,Sister Aldis,Yes.,はい。,NEUTRAL,,0,,self-authored seed; interjection ending in い
-seed033,Narrator,It was a day of strong wind.,風が強い日だった。,PLAIN,,,,self-authored seed; plain past copula
-seed034,Kestrel,I'll go. I told you.,俺が行く。そう言っただろ。,PLAIN,俺,0,,self-authored seed
-seed035,Sister Aldis,"He said ""I will go"" — those were his words.",「俺が行く」と、そう仰っていました。,POLITE,,0,,self-authored seed; QUOTED pronoun — detector should not attribute 俺 to Aldis
+line_id,speaker,is_choice,source_en,target_ja,register_gold,pronoun_gold,is_drift,drift_type,notes
+seed001,Narrator,0,Rain had been falling on the Aether Gate for three days.,エーテル門には三日間、雨が降り続いていた。,PLAIN,,,,self-authored seed; narration
+seed002,Narrator,0,The Gate answered with a sound like a held breath.,それでも門は、息を殺したような音で応えた。,PLAIN,,,,self-authored seed; narration
+seed003,Narrator,0,"The light folded inward, patient as water.",光は水のように辛抱強く、内側へと折りたたまれていった。,PLAIN,,,,self-authored seed; narration
+seed004,Narrator,0,"Beyond the Gate, the rain had never started.",門の向こうでは、雨は一度も降り始めてなどいなかった。,PLAIN,,,,self-authored seed; narration
+seed005,Kestrel,0,You're late. I don't wait twice.,遅いぞ。俺は二度も待たない。,PLAIN,俺,0,,self-authored seed
+seed006,Kestrel,0,Hmph. At least you know how to say it.,ふん。言い方くらいは知っているらしいな。,PLAIN,,0,,self-authored seed; i-adj + な
+seed007,Kestrel,0,It's a door. Doors open. That's all you need.,ただの扉だ。扉は開く。それで十分だろ。,PLAIN,,0,,self-authored seed
+seed008,Kestrel,0,Nothing to say? Good. Talking wastes daylight.,何も言わないのか。結構だ。喋るだけ日が暮れる。,PLAIN,,0,,self-authored seed
+seed009,Kestrel,0,Everything's impossible until it isn't. Move.,不可能なんてのは、そうでなくなるまでの話だ。行くぞ。,PLAIN,,0,,self-authored seed
+seed010,Kestrel,0,Stay close. I mean it.,離れるな。本気で言ってるぜ。,PLAIN,,0,,self-authored seed; 語尾 ぜ appears once
+seed011,Kestrel,0,"Whatever's on the other side, it knows we're here.",向こうに何がいるにせよ、僕たちがここにいることは知られている。,PLAIN,僕,1,pronoun,self-authored seed; PLANTED pronoun drift
+seed012,Kestrel,0,Then they're not records. They're dust.,なら記録じゃない。ただの埃だ。,PLAIN,,0,,self-authored seed
+seed013,Kestrel,0,Keep your guard up. I won't say it twice.,ガードを固めておけ。二度は言わない。,PLAIN,,0,,self-authored seed
+seed014,Kestrel,0,Don't move.,動くな。,NEUTRAL,,0,,self-authored seed; bare imperative is register-ambiguous
+seed015,Sister Aldis,0,Forgive him. He has been standing in the rain since dawn.,お許しください。彼は夜明けからずっと雨の中に立っておりました。,POLITE,,0,,self-authored seed
+seed016,Sister Aldis,0,That is more than most manage.,それだけでも大したものでございます。,POLITE,,0,,self-authored seed
+seed017,Sister Aldis,0,The Gate is older than the Compact that binds it.,あの門は、それを縛る盟約よりも古いのです。,POLITE,,0,,self-authored seed
+seed018,Sister Aldis,0,Silence has its own courtesy.,沈黙にも礼儀がある。,PLAIN,,1,register,self-authored seed; PLANTED register drift
+seed019,Sister Aldis,0,It recognizes you. That should not be possible.,あなたを認識しています。そんなはずはないのですが……,POLITE,,0,,self-authored seed
+seed020,Sister Aldis,0,We cannot stand here forever.,いつまでもここには居られません。,POLITE,,0,,self-authored seed
+seed021,Sister Aldis,0,Then we shall be introduced properly.,でしたら、きちんとご挨拶いたしましょう。,POLITE,,0,,self-authored seed
+seed022,Sister Aldis,0,The shrine keeps records no one has read in a century.,あの社には、百年誰も読んでいない記録が眠っております。,POLITE,,0,,self-authored seed
+seed023,Sister Aldis,0,"He means well, in his way.",彼なりに気遣っているのです。,POLITE,,0,,self-authored seed
+seed024,Sister Aldis,0,Please wait.,お待ちを。,POLITE,,0,,self-authored seed; elided ください
+seed025,Player,1,Apologize for the delay.,遅れたことを謝る,PLAIN,,0,,self-authored seed; menu choice
+seed026,Player,1,Ask what the Gate is.,門とは何かを尋ねます,POLITE,,1,register,self-authored seed; PLANTED choice register mismatch
+seed027,Player,1,Say nothing.,何も言わない,PLAIN,,0,,self-authored seed; menu choice
+seed028,Player,1,Step through the Gate.,門をくぐる,PLAIN,,0,,self-authored seed; menu choice
+seed029,Player,1,"Wait, and watch the light.",待って、光を見つめる,PLAIN,,0,,self-authored seed; menu choice
+seed030,Kestrel,0,Is that so.,そうか。,NEUTRAL,,0,,self-authored seed; interjection
+seed031,Kestrel,0,The Aether Gate.,エーテル門,NEUTRAL,,0,,self-authored seed; 体言止め
+seed032,Sister Aldis,0,Yes.,はい。,NEUTRAL,,0,,self-authored seed; interjection ending in い
+seed033,Narrator,0,It was a day of strong wind.,風が強い日だった。,PLAIN,,,,self-authored seed; plain past copula
+seed034,Kestrel,0,I'll go. I told you.,俺が行く。そう言っただろ。,PLAIN,俺,0,,self-authored seed
+seed035,Sister Aldis,0,"He said ""I will go"" — those were his words.",「俺が行く」と、そう仰っていました。,POLITE,,0,,self-authored seed; QUOTED pronoun — detector should not attribute 俺 to Aldis

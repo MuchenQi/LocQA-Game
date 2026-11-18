@@ -9,6 +9,12 @@ clearly separate column that is never the gold column.
     python eval/ingest.py corpus/ch1.xlf --predict --blind 0.3 --out rows.csv
     python eval/ingest.py corpus/ui.csv --sample 80 --seed 7 --append
 
+ON THE OUTPUT FILE
+
+--out defaults to eval/labels.csv, which holds human labels that cannot be
+regenerated. An existing --out is never replaced unless you say so: --append
+adds to it, --force overwrites it, and with neither the script refuses.
+
 ON PRE-FILLED PREDICTIONS
 
 Showing an annotator the classifier's guess makes labeling roughly three times
@@ -46,7 +52,7 @@ from locqa import load  # noqa: E402
 from locqa.checks.voice import _first_person, classify_register  # noqa: E402
 
 FIELDS = [
-    "line_id", "speaker", "source_en", "target_ja",
+    "line_id", "speaker", "is_choice", "source_en", "target_ja",
     "register_gold", "pronoun_gold", "is_drift", "drift_type", "notes",
 ]
 PRED_FIELDS = ["register_pred", "pronoun_pred", "blind"]
@@ -55,13 +61,31 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_LABELS = os.path.join(HERE, "labels.csv")
 
 
-def make_id(source_path: str, segment_id: str) -> str:
-    """Stable across re-ingests, so re-running never duplicates a row."""
+def make_id(source_path: str, seg) -> str:
+    """Stable across re-ingests, so re-running never duplicates a row.
+
+    XLIFF units and sheet rows carry a real key, and that is used. Ren'Py
+    segment ids are positional (`start#3`), so inserting one line upstream
+    renumbers every line after it; those are keyed on node and source text
+    instead, which only changes when the line itself does.
+    """
     stem = re.sub(r"[^a-z0-9]+", "", os.path.splitext(os.path.basename(source_path))[0].lower())[:12]
-    clean = re.sub(r"[^A-Za-z0-9_.#:-]+", "_", segment_id)
+    if seg.node_id and seg.id.startswith(f"{seg.node_id}#"):
+        digest = hashlib.sha1(f"{seg.node_id}\n{seg.source}".encode()).hexdigest()[:8]
+        key = f"{seg.node_id}~{digest}"
+    else:
+        key = seg.id
+    clean = re.sub(r"[^A-Za-z0-9_.#:~-]+", "_", key)
     if len(clean) > 28:
-        clean = clean[:20] + "_" + hashlib.sha1(segment_id.encode()).hexdigest()[:6]
+        clean = clean[:20] + "_" + hashlib.sha1(key.encode()).hexdigest()[:6]
     return f"{stem}__{clean}"
+
+
+def existing_header(path: str) -> list[str]:
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        return list(csv.DictReader(fh).fieldnames or [])
 
 
 def existing_ids(path: str) -> set[str]:
@@ -79,18 +103,25 @@ def existing_targets(path: str) -> set[str]:
 
 
 def collect(args) -> list[dict]:
-    script = load(args.path, translations=args.translations, sheet=args.sheet)
+    script = load(args.path, translations=args.translations)
 
     rows = []
+    ids: set[str] = set()
     for seg in script:
         target = (seg.target or "").strip()
         if not target or seg.do_not_translate:
             continue
         if args.min_chars and len(target) < args.min_chars:
             continue
+        line_id = make_id(args.path, seg)
+        if line_id in ids:
+            continue                    # the same line twice in one node; label it once
+        ids.add(line_id)
         rows.append({
-            "line_id": make_id(args.path, seg.id),
+            "line_id": line_id,
             "speaker": seg.speaker or "",
+            # sweep.py needs this to skip choices the way voice.register does.
+            "is_choice": "1" if seg.is_choice else "0",
             "source_en": seg.source,
             "target_ja": target,
             "register_gold": "",
@@ -99,10 +130,9 @@ def collect(args) -> list[dict]:
             "drift_type": "",
             "notes": "; ".join(filter(None, [
                 args.note or os.path.basename(args.path),
-                # voice.register skips choices and unattributed lines, so the
-                # annotator needs to know which rows those are before spending
-                # time on is_drift for them.
-                "choice" if seg.is_choice else "",
+                # voice.register skips choices (see is_choice) and unattributed
+                # lines, so the annotator needs to know which rows those are
+                # before spending time on is_drift for them.
                 "narration" if not seg.speaker and not seg.is_choice else "",
             ])),
         })
@@ -158,28 +188,57 @@ def attach_predictions(rows: list[dict], blind_fraction: float, seed: int) -> No
 
 
 def write(rows: list[dict], path: str, append: bool, fields: list[str]) -> None:
-    mode = "a" if append and os.path.exists(path) else "w"
-    with open(path, mode, encoding="utf-8", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n",
-                                extrasaction="ignore")
-        if mode == "w":
+    """Write rows, never losing a column on either side.
+
+    Appending uses the file's own header order, so a column the file has and
+    these rows lack is left blank rather than shifting every value after it.
+    If the rows bring columns the file lacks — `--predict` adding `blind` to a
+    file without one — the file is rewritten with the union header. Dropping
+    them instead would silently disable the anchoring check.
+    """
+    header = existing_header(path) if append else []
+    if not header:
+        with open(path, "w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n",
+                                    extrasaction="ignore")
             writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+            writer.writerows(rows)
+        return
+
+    missing = [f for f in fields if f not in header]
+    if not missing:
+        with open(path, "a", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=header, lineterminator="\n",
+                                    restval="", extrasaction="ignore")
+            writer.writerows(rows)
+        return
+
+    with open(path, encoding="utf-8-sig", newline="") as fh:
+        kept = list(csv.DictReader(fh))
+    union = header + missing
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=union, lineterminator="\n",
+                                restval="", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(kept)
+        writer.writerows(rows)
+    print(f"  added column(s) {', '.join(missing)} to {path}")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("path", help="Any file locqa parses: .rpy, .xlf, .csv, .xlsx")
+    ap.add_argument("path", help="Any file locqa parses: .rpy, .xlf, .xliff, .csv, .tsv")
     ap.add_argument("-t", "--translation", dest="translations", action="append", default=[],
                     help="Ren'Py translation file. Repeatable.")
-    ap.add_argument("--sheet", help="Worksheet name for .xlsx input.")
     ap.add_argument("--out", default=DEFAULT_LABELS,
                     help="Output CSV. Defaults to eval/labels.csv")
-    ap.add_argument("--append", action="store_true",
-                    help="Append to --out, skipping rows already present.")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--append", action="store_true",
+                      help="Append to --out, skipping rows already present.")
+    mode.add_argument("--force", action="store_true",
+                      help="Overwrite an existing --out. Destroys any labels in it.")
     ap.add_argument("--sample", type=int, default=0, help="Random subset of this size.")
     ap.add_argument("--per-speaker", type=int, default=0,
                     help="Cap rows per speaker before sampling.")
@@ -195,6 +254,12 @@ def main() -> None:
 
     if not 0.0 <= args.blind <= 1.0:
         raise SystemExit("--blind must be between 0 and 1")
+    if os.path.exists(args.out) and not (args.append or args.force):
+        # Checked before any parsing, so nothing is half-done when it fires.
+        raise SystemExit(
+            f"{args.out} already exists. Pass --append to add rows to it, or --force "
+            "to overwrite it (this destroys every label in the file)."
+        )
     if args.predict and args.blind < 0.15:
         print(f"  warning: --blind {args.blind:.2f} leaves few control rows; "
               "the anchoring check will be weak.\n")
