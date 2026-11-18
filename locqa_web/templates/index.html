@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}locqa — localization QA for game scripts{% endblock %}
+{% block content %}
+<section class="hero">
+  <span class="kicker">校正刷 · proof sheets for game text</span>
+  <h1>Find the localization bugs a spreadsheet review can’t see.</h1>
+  <p class="lede">
+    Upload a Ren’Py script, an XLIFF 2.0 export, or a loc sheet. locqa runs
+    {{ check_count }} checks for English → Japanese — dropped placeholders, kinsoku
+    breaks, font-atlas gaps, a character’s politeness drifting between branches —
+    and hands back a proof sheet you can send to the translator.
+  </p>
+  <div class="actions">
+    <a class="btn" href="/register">Create an account</a>
+    <a class="btn btn-quiet" href="/login">Sign in</a>
+  </div>
+</section>
+
+<section class="pillars">
+  <div>
+    <h2>Strings</h2>
+    <p>Placeholders, markup, length budgets measured in half-width units with
+      placeholders at their worst case, glossary and do-not-translate terms.</p>
+  </div>
+  <div>
+    <h2>Japanese</h2>
+    <p>禁則処理, 機種依存文字 outside the font atlas, wave-dash mixing, mojibake,
+      punctuation width — the conventions a JA QA lead marks in red.</p>
+  </div>
+  <div>
+    <h2>Branches</h2>
+    <p>Dialogue is a graph. Register drift, 一人称 changes, unreachable content you
+      paid to translate, and lines that only read right after one of three parents.</p>
+  </div>
+</section>
+{% endblock %}

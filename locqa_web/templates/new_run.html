@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}New run — locqa{% endblock %}
+{% block content %}
+<h1 class="page-title">New run</h1>
+
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+<div class="split">
+  <form class="stack card" method="post" action="/runs" enctype="multipart/form-data">
+    <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+
+    <label class="field">
+      <span>Locale file</span>
+      <input type="file" name="file" required accept="{{ extensions|join(',') }}" data-script-input>
+      <small>{{ extensions|join(' · ') }} — up to {{ max_mb }} MB, UTF-8.</small>
+    </label>
+
+    <label class="field" data-translation-field>
+      <span>Translation file <em>(Ren’Py only)</em></span>
+      <input type="file" name="translation" accept=".rpy">
+      <small>The <code>translate japanese</code> file that pairs with the script.
+        Joined on each line’s <code># original</code> comment.</small>
+    </label>
+
+    <label class="field">
+      <span>Config</span>
+      <select name="config">
+        {% for value, label in configs %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+      <small>Glossary, length budgets, font charset. <a href="/configs">Manage configs</a></small>
+    </label>
+
+    <button class="btn" type="submit">Run checks</button>
+  </form>
+
+  {% if has_samples %}
+  <aside class="card card-quiet">
+    <h2>No file handy?</h2>
+    <p>Run a sample. Both have bugs planted in them on purpose.</p>
+    <form method="post" action="/runs/sample">
+      <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+      <input type="hidden" name="which" value="dialogue">
+      <button class="btn btn-quiet btn-block" type="submit">Branching dialogue <small>Ren’Py + translation</small></button>
+    </form>
+    <form method="post" action="/runs/sample">
+      <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+      <input type="hidden" name="which" value="sheet">
+      <button class="btn btn-quiet btn-block" type="submit">UI strings <small>CSV loc sheet</small></button>
+    </form>
+  </aside>
+  {% endif %}
+</div>
+{% endblock %}

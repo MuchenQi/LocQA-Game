@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Create account' if mode == 'register' else 'Sign in' }} — locqa{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<h1 class="page-title">{{ 'Create an account' if mode == 'register' else 'Sign in' }}</h1>
+<p class="muted">
+  {% if mode == 'register' %}Your runs and configs are saved to your account.
+  {% else %}Welcome back.{% endif %}
+</p>
+
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+
+<form class="stack" method="post" action="/{{ mode }}">
+  <label class="field">
+    <span>Email</span>
+    <input type="email" name="email" value="{{ email }}" required autocomplete="email" autofocus>
+  </label>
+  <label class="field">
+    <span>Password</span>
+    <input type="password" name="password" required
+           {% if mode == 'register' %}minlength="8" autocomplete="new-password"
+           {% else %}autocomplete="current-password"{% endif %}>
+    {% if mode == 'register' %}<small>At least 8 characters.</small>{% endif %}
+  </label>
+  {% if mode == 'login' %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+  <button class="btn" type="submit">{{ 'Create account' if mode == 'register' else 'Sign in' }}</button>
+</form>
+
+<p class="muted switch">
+  {% if mode == 'register' %}Already have an account? <a href="/login">Sign in</a>
+  {% else %}New here? <a href="/register">Create an account</a>{% endif %}
+</p>
+{% endblock %}

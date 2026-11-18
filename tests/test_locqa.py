@@ -525,6 +525,28 @@ class TestConfig(unittest.TestCase):
             Config(severity_overrides={"placeholder.parit": "info"})
         self.assertIn("placeholder.parity", str(ctx.exception))
 
+    def test_from_yaml_matches_load(self):
+        path = os.path.join(SAMPLES, "aetherbound.locqa.yml")
+        with open(path, encoding="utf-8") as fh:
+            from_text = Config.from_yaml(fh.read())
+        self.assertEqual(from_text.glossary, Config.load(path).glossary)
+
+    def test_from_yaml_names_its_source_in_errors(self):
+        for text in ("charset: [", "glosary: {}", "- a list"):
+            with self.assertRaises(ValueError) as ctx:
+                Config.from_yaml(text, source="Team config")
+            self.assertTrue(str(ctx.exception).startswith("Team config:"), text)
+
+    def test_xliff_with_doctype_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "x.xlf")
+            with open(path, "wb") as fh:
+                fh.write(b'<?xml version="1.0"?><!DOCTYPE xliff [<!ENTITY e "x">]>'
+                         b'<xliff version="2.0"/>')
+            with self.assertRaises(ValueError) as ctx:
+                load(path)
+        self.assertIn("DOCTYPE", str(ctx.exception))
+
     def test_known_override_is_accepted(self):
         cfg = Config(severity_overrides={"consistency.target": "info"})
         self.assertIs(cfg.severity_overrides["consistency.target"], Severity.INFO)

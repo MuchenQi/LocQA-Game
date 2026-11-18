@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Configs — locqa{% endblock %}
+{% block content %}
+<h1 class="page-title">Configs</h1>
+<p class="muted">A config is the project YAML: font charset, placeholder widths, glossary,
+  forbidden and do-not-translate terms, severity overrides. Each run keeps a copy of the
+  config it used, so editing one here never changes an old report.</p>
+
+{% if error %}<p class="alert" role="alert">{{ error }}</p>{% endif %}
+{% if saved %}<p class="notice" role="status">Saved “{{ saved }}”.</p>{% endif %}
+
+<div class="split">
+  <form class="stack card" method="post" action="/configs">
+    <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+    <label class="field">
+      <span>Name</span>
+      <input name="name" value="{{ form_name }}" required maxlength="80" placeholder="e.g. Aetherbound JA">
+      <small>Saving under an existing name replaces that config.</small>
+    </label>
+    <label class="field">
+      <span>YAML</span>
+      <textarea name="yaml_text" rows="18" spellcheck="false">{{ form_yaml }}</textarea>
+      <small>Unknown keys and misspelled check ids are rejected, not ignored.</small>
+    </label>
+    <button class="btn" type="submit">Save config</button>
+  </form>
+
+  <aside class="card card-quiet">
+    <h2>Saved</h2>
+    {% if not profiles %}
+    <p class="muted">None yet. The form starts from the sample project’s config.</p>
+    {% else %}
+    <ul class="config-list">
+      {% for p in profiles %}
+      <li>
+        <a href="/configs?edit={{ p.id }}">{{ p.name }}</a>
+        <form method="post" action="/configs/{{ p.id }}/delete" data-confirm="Delete the config “{{ p.name }}”?">
+          <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+          <button class="link danger" type="submit">Delete</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

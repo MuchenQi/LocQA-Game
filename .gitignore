@@ -15,6 +15,10 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Local web database (SQLite, plus its WAL files)
+locqa_web.db
+locqa_web.db-*
+
 # Generated reports — regenerate with `make demo`
 demo-*.html
 loc-report.html

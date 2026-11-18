@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, tally %}
+{% block title %}{{ run.filename }} — locqa{% endblock %}
+{% block head %}
+{% if run.status in ('queued', 'running') %}<noscript><meta http-equiv="refresh" content="3"></noscript>{% endif %}
+{% endblock %}
+{% block main_class %}wide{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <p class="crumb"><a href="/runs">Runs</a> / #{{ run.id }}</p>
+    <h1 class="page-title">{{ run.filename }}</h1>
+    <p class="meta">
+      {% if run.translation_filename %}+ {{ run.translation_filename }} · {% endif %}
+      config: {{ run.config_name }} · {{ run.created_at|when }}{% if duration %} · {{ duration }}{% endif %}
+    </p>
+  </div>
+  {{ status_badge(run.status) }}
+</div>
+
+{% if run.status in ('queued', 'running') %}
+<div class="pending card" data-poll="/api/runs/{{ run.id }}" data-status="{{ run.status }}">
+  <span class="spinner" aria-hidden="true"></span>
+  <div>
+    <p class="pending-title" data-status-text>
+      {% if run.status == 'queued' %}Waiting for a worker…{% else %}Running {{ check_count }} checks…{% endif %}
+    </p>
+    <p class="muted">This page updates by itself. You can leave — the run keeps going and lands in your list.</p>
+  </div>
+</div>
+
+{% elif run.status == 'failed' %}
+<div class="card failed" role="alert">
+  <h2>The run did not finish</h2>
+  <p>{{ run.error }}</p>
+  <form method="post" action="/runs/{{ run.id }}/retry">
+    <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+    <button class="btn btn-quiet" type="submit">Try again</button>
+    <a class="btn btn-quiet" href="/runs/new">Upload a different file</a>
+  </form>
+</div>
+
+{% else %}
+<div class="result-bar">
+  {% if summary.total %}{{ tally(summary) }}{% else %}<span class="clean big">No findings.</span>{% endif %}
+  <span class="facts">{{ summary.segments }} segments · {{ summary.format }}{% if summary.has_graph %} · branching{% endif %} · {{ summary.checks_run }} checks</span>
+  <span class="downloads">
+    <a href="/runs/{{ run.id }}/report" target="_blank" rel="noopener">Open full page</a>
+    <a href="/runs/{{ run.id }}/report?download=1">HTML</a>
+    <a href="/runs/{{ run.id }}/findings.json">JSON</a>
+  </span>
+</div>
+<iframe class="report" src="/runs/{{ run.id }}/report" title="Proof sheet for {{ run.filename }}"
+        sandbox="allow-scripts" loading="lazy"></iframe>
+{% endif %}
+
+<form class="danger-zone" method="post" action="/runs/{{ run.id }}/delete" data-confirm="Delete this run and its report?">
+  <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+  <button class="link danger" type="submit">Delete run</button>
+</form>
+{% endblock %}

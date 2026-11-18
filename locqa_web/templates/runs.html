@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_macros.html" import status_badge, tally %}
+{% block title %}Runs — locqa{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1 class="page-title">Runs</h1>
+  <a class="btn" href="/runs/new">New run</a>
+</div>
+
+{% if not runs %}
+<div class="empty">
+  <p>No runs yet. Upload a file, or try one of the samples to see what a report looks like.</p>
+  <a class="btn" href="/runs/new">Start a run</a>
+</div>
+{% else %}
+<div class="table-wrap" {% if pending %}data-refresh="3000"{% endif %}>
+  <table class="runs">
+    <thead>
+      <tr>
+        <th scope="col">File</th>
+        <th scope="col">Config</th>
+        <th scope="col">Status</th>
+        <th scope="col">Findings</th>
+        <th scope="col">Started</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in runs %}{% set r = item.row %}
+      <tr>
+        <td class="file">
+          <a href="/runs/{{ r.id }}">{{ r.filename }}</a>
+          {% if r.translation_filename %}<small>+ {{ r.translation_filename }}</small>{% endif %}
+        </td>
+        <td>{{ r.config_name }}</td>
+        <td>{{ status_badge(r.status) }}</td>
+        <td>
+          {% if r.status == 'done' %}
+            {% if item.summary.total %}{{ tally(item.summary, compact=True) }}
+            {% else %}<span class="clean">Clean</span>{% endif %}
+          {% elif r.status == 'failed' %}<span class="muted">—</span>
+          {% else %}<span class="muted">…</span>{% endif %}
+        </td>
+        <td class="when">{{ r.created_at|when }}{% if item.duration %}<small>{{ item.duration }}</small>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

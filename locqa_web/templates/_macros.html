@@ -1,0 +1,16 @@
+{% macro status_badge(status) -%}
+<span class="status status-{{ status }}">
+  {%- if status == 'queued' %}Queued{% elif status == 'running' %}Checking…{% elif status == 'done' %}Done{% else %}Failed{% endif -%}
+</span>
+{%- endmacro %}
+
+{% macro tally(summary, compact=False) -%}
+{% set counts = summary.get('by_severity', {}) %}
+<span class="tally {{ 'tally-compact' if compact }}">
+  {%- for sev in severities %}
+  <span class="t t-{{ sev|lower }} {{ 'zero' if not counts.get(sev) }}" title="{{ sev }}">
+    <b>{{ counts.get(sev, 0) }}</b>{% if not compact %} <i>{{ sev }}</i>{% endif %}
+  </span>
+  {%- endfor %}
+</span>
+{%- endmacro %}

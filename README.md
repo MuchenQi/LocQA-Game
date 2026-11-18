@@ -4,6 +4,9 @@ Localization QA for game scripts, EN → JA. Reads XLIFF, loc sheets, and Ren'Py
 scripts; runs 26 checks; reports to console, JSON, JUnit, CSV, or an HTML proof
 sheet. No network access, no API keys, no model calls.
 
+There is also a browser front end with accounts and saved runs — see
+[Web front end](#web-front-end).
+
 ```
 locqa check script.xlf -c project.yml
 locqa check dialogue.rpy -t dialogue_ja.rpy -c project.yml -r html -o report.html
@@ -189,7 +192,13 @@ locqa/
   htmlreport.py     proof sheet with the character grid
   pseudo.py         pseudolocalization
   cli.py            check · graph · pseudo · checks, and the exit codes
-tests/              89 tests, stdlib unittest
+locqa_web/          browser front end (optional extra; see "Web front end")
+  app.py            FastAPI routes: auth, uploads, configs, run pages, JSON API
+  jobs.py           the job queue: claim, lease, fence, run in a child process
+  analysis.py       the child process: bytes + config in, report out
+  models.py         users, sessions, saved configs, runs (which are also the queue)
+  worker.py         standalone worker process
+tests/              92 core tests + 37 web tests, stdlib unittest
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
 eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
 ```
@@ -201,6 +210,93 @@ pip install -e .
 python -m unittest discover -s tests -v
 locqa checks              # list every check with its default severity
 ```
+
+## Web front end
+
+`locqa_web` puts the checker behind a browser, for the translators and
+producers who will never install a Python CLI. Upload a locale file, pick a
+config, and the result page frames the same HTML proof sheet the CLI writes.
+Accounts keep a history of past runs and a set of saved configs.
+
+```bash
+pip install -e ".[web]"
+uvicorn locqa_web.app:app --reload      # http://localhost:8000
+```
+
+That is the whole local setup: SQLite in the working directory, and the
+worker running as a thread inside the web process. For two processes:
+
+```bash
+LOCQA_INLINE_WORKER=0 uvicorn locqa_web.app:app
+python -m locqa_web.worker              # as many as you like
+```
+
+### Not running the checker in the request
+
+The request handler never runs locqa. `POST /runs` stores the upload, inserts
+a `queued` row, and redirects; a worker runs the checks and writes the result
+back; the run page polls `/api/runs/{id}` until it has one. A slow file costs
+a worker, not a request thread, and the user can close the tab.
+
+The queue is the `runs` table itself rather than Redis or a broker — one
+fewer service to keep alive on a free tier, and no way for a job and its
+result to disagree. What makes that safe (`locqa_web/jobs.py`):
+
+- **Claiming is compare-and-set.** The UPDATE that marks a row `running`
+  repeats the "still claimable" condition, so of two racing workers exactly
+  one gets `rowcount == 1`. On Postgres the candidate is also selected
+  `FOR UPDATE SKIP LOCKED`, so a second worker moves on instead of waiting.
+- **A claim is a lease.** If a worker dies mid-run, `locked_until` lapses and
+  another worker retries the run, up to `LOCQA_MAX_ATTEMPTS`; after that it
+  fails with a message saying so.
+- **`attempts` is a fencing token.** A worker that lost its lease and wakes
+  up later cannot overwrite the newer attempt's result.
+- **The checks run in a child process with a hard timeout**
+  (`LOCQA_JOB_TIMEOUT`, default 60 s). A hostile or pathological file is
+  killed; the worker never blocks on it.
+- **Only lost workers are retried.** An unparseable file, an invalid config,
+  or a timeout would fail identically the second time, so they fail once with
+  a message the user can act on.
+
+### Other decisions
+
+- **Uploads and reports live in the database**, not on disk. Free tiers give
+  a container an ephemeral filesystem, and the worker may be another machine.
+- **Each run snapshots its config.** Editing a saved config never changes
+  what an old report says it was checked against.
+- **The proof sheet is served sandboxed** (`Content-Security-Policy: sandbox`),
+  so it runs in an opaque origin with no access to the app's session.
+- **Passwords are scrypt** (stdlib `hashlib`); session tokens are random and
+  stored only as hashes; forms carry a per-session CSRF token on top of
+  `SameSite=Lax` cookies; other users' runs are 404, not 403.
+- **XLIFF with a DOCTYPE is refused.** XLIFF never needs one, and refusing it
+  closes off entity-expansion tricks from uploaded files.
+
+### Deploying
+
+`Dockerfile` builds one image for both processes, so any platform that runs a
+container works. `render.yaml` is a Render blueprint for one web service plus
+Postgres, with the worker as a thread inside the web service. Set:
+
+| variable | default | |
+|---|---|---|
+| `DATABASE_URL` | `sqlite:///./locqa_web.db` | `postgres://…` is rewritten for psycopg 3 |
+| `LOCQA_SECURE_COOKIES` | `0` | set `1` anywhere served over HTTPS |
+| `LOCQA_INLINE_WORKER` | `1` | `0` when running `locqa-worker` separately |
+| `LOCQA_JOB_TIMEOUT` | `60` | seconds per run |
+| `LOCQA_MAX_UPLOAD_BYTES` | `5242880` | per file |
+
+### Web: known limits
+
+- Tables are created with `create_all`; there are no migrations yet, so a
+  schema change on a live database needs Alembic first.
+- The Postgres paths (`SKIP LOCKED`, psycopg) are exercised by SQL compilation
+  only; the test suite runs on SQLite.
+- No rate limiting on sign-in, no email verification, no password reset.
+- The request-size guard reads `Content-Length`; a chunked upload with none
+  is still capped per file, but only after it has been spooled.
+- The worker polls once a second when idle. Postgres `LISTEN/NOTIFY` would
+  make pickup instant.
 
 ## Evaluation
 

@@ -104,6 +104,15 @@ def _int(value: str | None, unit_id: str, field: str) -> int | None:
 
 def parse(path: str, **_) -> Script:
     """Read an XLIFF 2.0 file into a Script."""
+    # XLIFF 2.0 is schema-validated and never needs a DTD. Refusing one
+    # outright closes off entity-expansion and external-entity tricks, which
+    # matters once files arrive from strangers through an upload form.
+    with open(path, "rb") as fh:
+        if b"<!doctype" in fh.read().lower():
+            raise ValueError(
+                f"{os.path.basename(path)}: contains a DOCTYPE declaration. "
+                "XLIFF does not use one; remove it and re-export."
+            )
     try:
         root = ET.parse(path).getroot()
     except ET.ParseError as exc:

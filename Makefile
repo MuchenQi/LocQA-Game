@@ -8,11 +8,14 @@ TRANS   = samples/aetherbound_ja.rpy
 # this is set; without it the CLI substitutes ? for every unencodable character.
 export PYTHONIOENCODING = utf-8
 
-.PHONY: help install test eval sweep demo check graph pseudo lint clean
+.PHONY: help install install-web test eval sweep demo check graph pseudo web worker lint clean
 
 help:
 	@echo "install   pip install -e . (editable, with PyYAML)"
-	@echo "test      run the unit suite"
+	@echo "install-web  pip install -e .[web] (FastAPI, SQLAlchemy, uvicorn)"
+	@echo "test      run the unit suite (web tests skip without the web extra)"
+	@echo "web       serve the front end on :8000, worker as a thread inside it"
+	@echo "worker    run a standalone worker (pair with LOCQA_INLINE_WORKER=0 make web)"
 	@echo "eval      classifier evaluation against eval/labels.csv"
 	@echo "sweep     voice.register threshold sweep"
 	@echo "demo      regenerate demo-ui.html and demo-dialogue.html"
@@ -22,6 +25,15 @@ help:
 
 install:
 	$(PYTHON) -m pip install -e .
+
+install-web:
+	$(PYTHON) -m pip install -e ".[web]"
+
+web:
+	$(PYTHON) -m uvicorn locqa_web.app:app --reload --port 8000
+
+worker:
+	$(PYTHON) -m locqa_web.worker
 
 test:
 	$(PYTHON) -m unittest discover -s tests -v
@@ -55,6 +67,6 @@ lint:
 	ruff check locqa tests eval
 
 clean:
-	rm -f demo-*.html loc-report.html loc-results.xml pseudo.csv sweep.png
+	rm -f demo-*.html loc-report.html loc-results.xml pseudo.csv sweep.png locqa_web.db*
 	rm -rf .ruff_cache .pytest_cache
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +

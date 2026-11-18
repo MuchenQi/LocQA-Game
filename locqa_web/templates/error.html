@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — locqa{% endblock %}
+{% block main_class %}narrow{% endblock %}
+{% block content %}
+<p class="kicker">{{ code }}</p>
+<h1 class="page-title">{{ detail }}</h1>
+<p><a href="{{ '/runs' if viewer else '/' }}">Back to {{ 'your runs' if viewer else 'the start page' }}</a></p>
+{% endblock %}

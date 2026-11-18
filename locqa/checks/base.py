@@ -120,6 +120,18 @@ class Config:
         A typo'd key in a linter config is silent failure by definition — the
         rule the user thought they configured simply never fires.
         """
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+        return cls.from_yaml(text, source=path, path=os.path.abspath(path))
+
+    @classmethod
+    def from_yaml(cls, text: str, source: str = "config", path: str = "") -> Config:
+        """Parse YAML text with the same strictness as `load`.
+
+        Exists for callers that hold the config as text rather than as a file
+        — the web front end stores each run's config as a snapshot string.
+        `source` prefixes every error so the user can tell which config failed.
+        """
         try:
             import yaml
         except ModuleNotFoundError as exc:       # pragma: no cover - env-dependent
@@ -127,22 +139,24 @@ class Config:
                 "Reading a config file needs PyYAML: pip install locqa"
             ) from exc
 
-        with open(path, encoding="utf-8") as fh:
-            raw = yaml.safe_load(fh) or {}
+        try:
+            raw = yaml.safe_load(text) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"{source}: not valid YAML — {exc}") from None
         if not isinstance(raw, dict):
-            raise ValueError(f"{path}: expected a mapping at the top level")
+            raise ValueError(f"{source}: expected a mapping at the top level")
 
         known = {f.name for f in cls.__dataclass_fields__.values()} - {"path"}
         unknown = sorted(set(raw) - known)
         if unknown:
             raise ValueError(
-                f"{path}: unknown config key(s): {', '.join(unknown)}. "
+                f"{source}: unknown config key(s): {', '.join(unknown)}. "
                 f"Known keys: {', '.join(sorted(known))}"
             )
         try:
-            return cls(path=os.path.abspath(path), **raw)
-        except ValueError as exc:
-            raise ValueError(f"{path}: {exc}") from None
+            return cls(path=path, **raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{source}: {exc}") from None
 
 
 # -- the check protocol ------------------------------------------------------

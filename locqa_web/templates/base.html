@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}locqa{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="top">
+    <div class="wrap top-row">
+      <a class="brand" href="{{ '/runs' if viewer else '/' }}">
+        <span class="brand-mark" aria-hidden="true">校</span>
+        <span class="brand-name">locqa</span>
+      </a>
+      {% if viewer %}
+      <nav class="nav" aria-label="Main">
+        <a href="/runs" {% if request.url.path == '/runs' %}aria-current="page"{% endif %}>Runs</a>
+        <a href="/runs/new" {% if request.url.path == '/runs/new' %}aria-current="page"{% endif %}>New run</a>
+        <a href="/configs" {% if request.url.path.startswith('/configs') %}aria-current="page"{% endif %}>Configs</a>
+      </nav>
+      <form class="who" method="post" action="/logout">
+        <span class="who-email">{{ viewer.email }}</span>
+        <input type="hidden" name="csrf" value="{{ viewer.csrf }}">
+        <button class="link" type="submit">Sign out</button>
+      </form>
+      {% else %}
+      <nav class="nav" aria-label="Account">
+        <a href="/login">Sign in</a>
+        <a class="btn btn-small" href="/register">Create account</a>
+      </nav>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="wrap {% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="wrap foot">
+    locqa {{ version }} · EN → JA localization QA · offline checks, no model calls
+  </footer>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
