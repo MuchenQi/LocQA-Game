@@ -15,6 +15,11 @@ htmlcov/
 .mypy_cache/
 .ruff_cache/
 
+# Secrets. `neon deploy` writes the database connection strings here.
+.env
+.env.*
+!.env.example
+
 # Local web database (SQLite, plus its WAL files)
 locqa_web.db
 locqa_web.db-*
@@ -35,3 +40,5 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+.neon
+node_modules/

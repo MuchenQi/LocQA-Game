@@ -805,6 +805,39 @@ class TestPasswordReset(WebCase):
 
 @unittest.skipIf(TestClient is None, "web extra not installed")
 class TestSettings(unittest.TestCase):
+    def test_env_files_load_without_overriding_the_environment(self):
+        from unittest import mock
+
+        from locqa_web.settings import load_env_files
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, ".env.local"), "w", encoding="utf-8") as fh:
+                fh.write('# from neon env pull\nDATABASE_URL="postgresql://a@pooler/db"\n'
+                         "export LOCQA_JOB_TIMEOUT=7\nALREADY=from-file\n")
+            with open(os.path.join(tmp, ".env"), "w", encoding="utf-8") as fh:
+                fh.write("DATABASE_URL=postgresql://b@other/db\nONLY_IN_DOTENV='yes'\n")
+            with mock.patch.dict(os.environ, {"ALREADY": "from-platform"}, clear=True):
+                read = load_env_files(tmp)
+                self.assertEqual(len(read), 2)
+                self.assertEqual(os.environ["DATABASE_URL"], "postgresql://a@pooler/db")
+                self.assertEqual(os.environ["LOCQA_JOB_TIMEOUT"], "7")
+                self.assertEqual(os.environ["ALREADY"], "from-platform")
+                self.assertEqual(os.environ["ONLY_IN_DOTENV"], "yes")
+
+    def test_neon_unpooled_url_is_preferred(self):
+        from unittest import mock
+
+        from locqa_web.settings import database_url_from_env
+
+        both = {"DATABASE_URL": "postgresql://u@ep-x-pooler.neon.tech/db",
+                "DATABASE_URL_UNPOOLED": "postgresql://u@ep-x.neon.tech/db"}
+        with mock.patch.dict(os.environ, both, clear=True):
+            self.assertEqual(database_url_from_env(), "postgresql://u@ep-x.neon.tech/db")
+        with mock.patch.dict(os.environ, {"DATABASE_URL": "postgresql://u@h/db"}, clear=True):
+            self.assertEqual(database_url_from_env(), "postgresql://u@h/db")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(database_url_from_env().startswith("sqlite"))
+
     def test_resend_needs_a_key_and_hides_it(self):
         with self.assertRaises(ValueError):
             Settings(mail_backend="resend")

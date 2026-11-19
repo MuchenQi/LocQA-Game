@@ -238,6 +238,17 @@ LOCQA_INLINE_WORKER=0 uvicorn locqa_web.app:app
 python -m locqa_web.worker              # as many as you like
 ```
 
+Settings are read from the environment, then from `.env.local` and `.env`
+in the working directory (the files `neon deploy` and `neon env pull` write),
+and a real environment variable always wins over a file. With Neon's
+variables present, the app prefers `DATABASE_URL_UNPOOLED` (direct) over
+`DATABASE_URL` (the PgBouncer pooler). The app keeps its own connection pool,
+and a standalone worker holds a `LISTEN` connection that a transaction pooler
+cannot carry. Whatever branch `.env.local` names is the database every local
+command uses, including `uvicorn`, `locqa-worker` and `alembic`. Point it at a
+development branch (`neon checkout dev --create`, then `neon env pull`) rather
+than production.
+
 Changing a model means writing a migration; CI fails if the two disagree.
 
 ```bash

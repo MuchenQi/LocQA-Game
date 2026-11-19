@@ -29,6 +29,57 @@ def _float(name: str, default: float) -> float:
     return float(value) if value and value.strip() else default
 
 
+ENV_FILES = (".env.local", ".env")
+
+
+def load_env_files(directory: str | os.PathLike = ".") -> list[str]:
+    """Read KEY=value lines from .env.local, then .env, into os.environ.
+
+    `neon deploy` (and `neon env pull`) write the database URLs to
+    .env.local, the way Node frameworks expect. This is the Python side of
+    that convention. A variable already in the environment always wins, so
+    a platform's dashboard settings (Render's, CI's) are never overridden by
+    a file, and .env.local wins over .env because it is read first.
+    Returns the files that were read.
+    """
+    read = []
+    for name in ENV_FILES:
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            continue
+        read.append(path)
+        with open(path, encoding="utf-8") as fh:
+            for raw in fh:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                key, value = line.split("=", 1)
+                key, value = key.strip(), value.strip()
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                    value = value[1:-1]
+                os.environ.setdefault(key, value)
+    return read
+
+
+def database_url_from_env() -> str:
+    """The database to use, preferring Neon's direct (unpooled) address.
+
+    Neon sets DATABASE_URL to its PgBouncer pooler and DATABASE_URL_UNPOOLED
+    to the database itself. Poolers suit serverless functions that open a
+    connection per request; this is a long-running server with its own
+    SQLAlchemy pool, and its standalone worker holds a LISTEN connection,
+    which a transaction-mode pooler cannot carry. So the direct address wins
+    when both are present. A plain DATABASE_URL (Render, CI) works as before.
+    """
+    return (
+        os.environ.get("DATABASE_URL_UNPOOLED")
+        or os.environ.get("DATABASE_URL")
+        or Settings.database_url
+    )
+
+
 def normalize_db_url(url: str) -> str:
     """Point SQLAlchemy at psycopg 3 for Postgres URLs.
 
@@ -80,10 +131,9 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> Settings:
+        load_env_files()
         return cls(
-            database_url=normalize_db_url(
-                os.environ.get("DATABASE_URL", cls.database_url)
-            ),
+            database_url=normalize_db_url(database_url_from_env()),
             secure_cookies=_flag("LOCQA_SECURE_COOKIES", cls.secure_cookies),
             inline_worker=_flag("LOCQA_INLINE_WORKER", cls.inline_worker),
             max_upload_bytes=_int("LOCQA_MAX_UPLOAD_BYTES", cls.max_upload_bytes),
