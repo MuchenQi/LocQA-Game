@@ -167,7 +167,16 @@ def _duration(run_row) -> str:
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.from_env()
     engine = make_engine(settings.database_url)
-    init_db(engine)
+    # Migrations go over the direct connection: through a transaction-mode
+    # pooler, DDL and the advisory lock would not stay on one server session.
+    if settings.migration_url == settings.database_url:
+        init_db(engine)
+    else:
+        direct = make_engine(settings.migration_url)
+        try:
+            init_db(direct)
+        finally:
+            direct.dispose()
     Session = make_sessionmaker(engine)
 
     # Set by every upload. The inline worker sleeps on it instead of polling

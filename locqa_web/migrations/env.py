@@ -7,7 +7,8 @@ Two ways in:
   transaction that holds the migration lock. Nothing here may commit it.
 - The `alembic` CLI (alembic.ini at the repo root), for writing new
   revisions: `alembic revision --autogenerate -m "…"`. It builds its own
-  engine from DATABASE_URL, exactly as the app would.
+  engine from the direct URL (DATABASE_URL_UNPOOLED, else DATABASE_URL),
+  exactly as the app's startup migration does.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ def run_migrations_online() -> None:
             context.run_migrations()
         return
 
-    engine = make_engine(Settings.from_env().database_url)
+    engine = make_engine(Settings.from_env().migration_url)     # direct, never pooled
     with engine.connect() as connection:
         _configure(connection)
         with context.begin_transaction():

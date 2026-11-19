@@ -202,7 +202,8 @@ locqa_web/          browser front end (optional extra; see "Web front end")
   migrations/       Alembic revisions
   limits.py         sign-in, sign-up, and reset rate limits
   mail.py           reset email: console, Resend, or in-memory
-tests/              92 core tests + 57 web tests, stdlib unittest
+docs/               job-queue.md: how the web layer runs a slow checker
+tests/              92 core tests + 59 web tests, stdlib unittest
 .github/workflows/  CI: core on 3.10 and 3.13; web on SQLite and Postgres
 samples/            Ren'Py script + JA translation, loc sheet, XLIFF 2.0, config
 eval/               labeled set, annotation guidelines, ingest + classifier + threshold harnesses
@@ -240,14 +241,17 @@ python -m locqa_web.worker              # as many as you like
 
 Settings are read from the environment, then from `.env.local` and `.env`
 in the working directory (the files `neon deploy` and `neon env pull` write),
-and a real environment variable always wins over a file. With Neon's
-variables present, the app prefers `DATABASE_URL_UNPOOLED` (direct) over
-`DATABASE_URL` (the PgBouncer pooler). The app keeps its own connection pool,
-and a standalone worker holds a `LISTEN` connection that a transaction pooler
-cannot carry. Whatever branch `.env.local` names is the database every local
-command uses, including `uvicorn`, `locqa-worker` and `alembic`. Point it at a
-development branch (`neon checkout dev --create`, then `neon env pull`) rather
-than production.
+and a real environment variable always wins over a file. With both of Neon's
+variables present, the app follows Neon's guidance and splits them. Request
+handlers and the worker's queries go through `DATABASE_URL`, the PgBouncer
+pooler, with psycopg's prepared statements turned off as a pooler requires.
+Schema migrations and the standalone worker's `LISTEN` connection use
+`DATABASE_URL_UNPOOLED`, the direct connection, because a transaction-mode
+pooler cannot carry either. With only `DATABASE_URL` set, everything uses it.
+Whatever branch `.env.local` names is the database every local command uses,
+including `uvicorn`, `locqa-worker` and `alembic`. Point it at a development
+branch (`neon checkout dev --create`, then `neon env pull`) rather than
+production.
 
 Changing a model means writing a migration; CI fails if the two disagree.
 
@@ -272,7 +276,9 @@ a worker, not a request thread, and the user can close the tab.
 
 The queue is the `runs` table itself rather than Redis or a broker — one
 fewer service to keep alive on a free tier, and no way for a job and its
-result to disagree. What makes that safe (`locqa_web/jobs.py`):
+result to disagree. The full reasoning, with the failure cases and
+measurements, is in [docs/job-queue.md](docs/job-queue.md). In short, what
+makes it safe (`locqa_web/jobs.py`):
 
 - **Claiming is compare-and-set.** The UPDATE that marks a row `running`
   repeats the "still claimable" condition, so of two racing workers exactly
@@ -339,13 +345,15 @@ that stays up: a free Render web service with the worker as a thread inside
 it, and a free [Neon](https://neon.com) Postgres. Not Render's own free
 Postgres, which is deleted 30 days after it is created.
 
-1. Create a Neon project and copy its **direct** connection string (not the
-   `-pooler` one).
+1. Create a Neon project, then print its two connection strings:
+   `neon connection-string production --pooled` and
+   `neon connection-string production` (direct).
 2. Push this repo to GitHub. In Render, choose **New → Blueprint** and select
    the repo.
-3. When Render asks for the `sync: false` values, paste the Neon string as
-   `DATABASE_URL`, and set `LOCQA_BASE_URL` to the service's
-   `https://….onrender.com` address. `RESEND_API_KEY` can stay empty for now.
+3. When Render asks for the `sync: false` values, paste the pooled string as
+   `DATABASE_URL` and the direct one as `DATABASE_URL_UNPOOLED`. Set
+   `LOCQA_BASE_URL` to the service's `https://….onrender.com` address.
+   `RESEND_API_KEY` can stay empty for now.
 4. Open the URL. Free Render services sleep after a stretch without traffic,
    so the first request after a quiet spell is slow.
 5. For real reset emails, create a [Resend](https://resend.com) API key, set

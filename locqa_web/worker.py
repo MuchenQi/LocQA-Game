@@ -23,11 +23,15 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     settings = Settings.from_env()
     engine = make_engine(settings.database_url)
-    init_db(engine)
+    # Migrations and LISTEN need a session that stays on one server
+    # connection, so both use the direct URL; ordinary queries may be pooled.
+    direct = make_engine(settings.migration_url)
+    init_db(direct)
     stop = threading.Event()
     # LISTEN/NOTIFY on Postgres, so a new run is picked up at once instead of
     # at the next poll. SQLite has no equivalent and polls.
-    waiter = jobs.listener_for(engine)
+    waiter = jobs.listener_for(direct)
+    direct.dispose()                    # the listener opens its own connection
 
     def _stop(*_):
         stop.set()

@@ -824,19 +824,32 @@ class TestSettings(unittest.TestCase):
                 self.assertEqual(os.environ["ALREADY"], "from-platform")
                 self.assertEqual(os.environ["ONLY_IN_DOTENV"], "yes")
 
-    def test_neon_unpooled_url_is_preferred(self):
+    def test_neon_pooled_for_queries_direct_for_migrations(self):
         from unittest import mock
 
-        from locqa_web.settings import database_url_from_env
+        # No env files: this repo's own .env.local would otherwise fill in
+        # whatever the test leaves unset.
+        with mock.patch("locqa_web.settings.load_env_files", return_value=[]):
+            both = {"DATABASE_URL": "postgresql://u@ep-x-pooler.neon.tech/db",
+                    "DATABASE_URL_UNPOOLED": "postgresql://u@ep-x.neon.tech/db"}
+            with mock.patch.dict(os.environ, both, clear=True):
+                s = Settings.from_env()
+                self.assertEqual(s.database_url, "postgresql+psycopg://u@ep-x-pooler.neon.tech/db")
+                self.assertEqual(s.migration_url, "postgresql+psycopg://u@ep-x.neon.tech/db")
+            with mock.patch.dict(os.environ, {"DATABASE_URL": "postgresql://u@h/db"}, clear=True):
+                s = Settings.from_env()
+                self.assertEqual(s.migration_url, s.database_url)
+                self.assertEqual(s.direct_database_url, "")
 
-        both = {"DATABASE_URL": "postgresql://u@ep-x-pooler.neon.tech/db",
-                "DATABASE_URL_UNPOOLED": "postgresql://u@ep-x.neon.tech/db"}
-        with mock.patch.dict(os.environ, both, clear=True):
-            self.assertEqual(database_url_from_env(), "postgresql://u@ep-x.neon.tech/db")
-        with mock.patch.dict(os.environ, {"DATABASE_URL": "postgresql://u@h/db"}, clear=True):
-            self.assertEqual(database_url_from_env(), "postgresql://u@h/db")
-        with mock.patch.dict(os.environ, {}, clear=True):
-            self.assertTrue(database_url_from_env().startswith("sqlite"))
+    def test_prepared_statements_off_only_behind_the_pooler(self):
+        from locqa_web.db import postgres_connect_args
+
+        self.assertEqual(postgres_connect_args(
+            "postgresql+psycopg://u:p@ep-x-pooler.us-west-2.aws.neon.tech/db?sslmode=require"),
+            {"prepare_threshold": None})
+        self.assertEqual(postgres_connect_args(
+            "postgresql+psycopg://u:p@ep-x.us-west-2.aws.neon.tech/db"), {})
+        self.assertEqual(postgres_connect_args("postgresql+psycopg://u@localhost/db"), {})
 
     def test_resend_needs_a_key_and_hides_it(self):
         with self.assertRaises(ValueError):

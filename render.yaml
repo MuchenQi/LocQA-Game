@@ -2,8 +2,8 @@
 # inside it. The database is NOT Render's: a free Render Postgres is deleted
 # 30 days after it is created, which is no good for a link that has to stay
 # up. Use a free Neon database (or any Postgres) and paste its connection
-# string when Render asks for DATABASE_URL — use Neon's direct connection
-# string, not the "-pooler" one.
+# strings when Render asks (see DATABASE_URL below). With a plain Postgres,
+# set only DATABASE_URL and leave DATABASE_URL_UNPOOLED empty.
 #
 # Render prompts for every `sync: false` value when the blueprint is first
 # applied. Free-tier terms change; check render.com/docs/free.
@@ -20,8 +20,14 @@ services:
     plan: free
     healthCheckPath: /healthz
     envVars:
+      # Neon's two strings for the production branch:
+      #   neon connection-string production --pooled   -> DATABASE_URL
+      #   neon connection-string production            -> DATABASE_URL_UNPOOLED
+      # Queries use the pooled one; migrations and LISTEN use the direct one.
       - key: DATABASE_URL
-        sync: false                 # paste the Neon connection string
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
       - key: LOCQA_BASE_URL
         sync: false                 # e.g. https://locqa.onrender.com — used in reset emails
       - key: LOCQA_SECURE_COOKIES

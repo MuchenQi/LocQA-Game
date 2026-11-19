@@ -41,7 +41,27 @@ def make_engine(url: str) -> Engine:
             cursor.close()
 
         return engine
-    return create_engine(url, pool_pre_ping=True)
+    return create_engine(url, pool_pre_ping=True, connect_args=postgres_connect_args(url))
+
+
+def is_pooled(url: str) -> bool:
+    """A Neon pooler endpoint: the host carries a `-pooler` suffix."""
+    from sqlalchemy.engine import make_url
+
+    return "-pooler" in (make_url(url).host or "")
+
+
+def postgres_connect_args(url: str) -> dict:
+    """psycopg options for this URL.
+
+    psycopg 3 turns a query into a server-side prepared statement after five
+    executions. Behind PgBouncer in transaction mode, consecutive
+    transactions can land on different server connections, so a statement
+    prepared on one is missing on the next, or already exists there. Turning
+    automatic preparation off for pooler endpoints avoids that; on a direct
+    connection it stays on.
+    """
+    return {"prepare_threshold": None} if is_pooled(url) else {}
 
 
 def make_sessionmaker(engine: Engine) -> sessionmaker:

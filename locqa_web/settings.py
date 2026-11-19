@@ -63,21 +63,24 @@ def load_env_files(directory: str | os.PathLike = ".") -> list[str]:
     return read
 
 
-def database_url_from_env() -> str:
-    """The database to use, preferring Neon's direct (unpooled) address.
+def database_urls_from_env() -> tuple[str, str]:
+    """(app URL, direct URL), following Neon's two-connection convention.
 
-    Neon sets DATABASE_URL to its PgBouncer pooler and DATABASE_URL_UNPOOLED
-    to the database itself. Poolers suit serverless functions that open a
-    connection per request; this is a long-running server with its own
-    SQLAlchemy pool, and its standalone worker holds a LISTEN connection,
-    which a transaction-mode pooler cannot carry. So the direct address wins
-    when both are present. A plain DATABASE_URL (Render, CI) works as before.
+    Neon gives every branch two strings for one database. `neon env pull`
+    writes them as DATABASE_URL, which goes through its PgBouncer pooler, and
+    DATABASE_URL_UNPOOLED, which is direct. Neon's guidance (the neon-postgres
+    agent skill) is to send a web app's ordinary query traffic through the
+    pooler, and to use the direct string for what a transaction-mode pooler
+    cannot carry: schema migrations (Alembic) and LISTEN/NOTIFY. That is the
+    split here: request handlers and the worker's queries use the first URL;
+    migrations and the standalone worker's LISTEN connection use the second.
+
+    With only DATABASE_URL set (CI, any plain Postgres, or Render configured
+    with one string) both are the same URL and nothing changes.
     """
-    return (
-        os.environ.get("DATABASE_URL_UNPOOLED")
-        or os.environ.get("DATABASE_URL")
-        or Settings.database_url
-    )
+    app = os.environ.get("DATABASE_URL") or Settings.database_url
+    direct = os.environ.get("DATABASE_URL_UNPOOLED") or app
+    return app, direct
 
 
 def normalize_db_url(url: str) -> str:
@@ -99,6 +102,9 @@ MAIL_BACKENDS = ("console", "resend", "memory")
 @dataclass(frozen=True)
 class Settings:
     database_url: str = "sqlite:///./locqa_web.db"
+    # Direct (unpooled) connection for migrations and LISTEN. Empty means
+    # "same as database_url", which is right for SQLite and plain Postgres.
+    direct_database_url: str = ""
     secure_cookies: bool = False
     inline_worker: bool = True
     max_upload_bytes: int = 5 * 1024 * 1024
@@ -129,11 +135,18 @@ class Settings:
         if self.mail_backend == "resend" and not self.resend_api_key:
             raise ValueError("LOCQA_MAIL_BACKEND=resend needs RESEND_API_KEY.")
 
+    @property
+    def migration_url(self) -> str:
+        """Where schema migrations and LISTEN connect: the direct URL."""
+        return self.direct_database_url or self.database_url
+
     @classmethod
     def from_env(cls) -> Settings:
         load_env_files()
+        app_url, direct_url = database_urls_from_env()
         return cls(
-            database_url=normalize_db_url(database_url_from_env()),
+            database_url=normalize_db_url(app_url),
+            direct_database_url=normalize_db_url(direct_url) if direct_url != app_url else "",
             secure_cookies=_flag("LOCQA_SECURE_COOKIES", cls.secure_cookies),
             inline_worker=_flag("LOCQA_INLINE_WORKER", cls.inline_worker),
             max_upload_bytes=_int("LOCQA_MAX_UPLOAD_BYTES", cls.max_upload_bytes),

@@ -73,7 +73,7 @@ def main() -> None:
     from .settings import Settings
 
     logging.basicConfig(level=logging.INFO, format="%(name)s %(message)s")
-    engine = make_engine(Settings.from_env().database_url)
+    engine = make_engine(Settings.from_env().migration_url)     # direct, never pooled
     upgrade(engine)
     log.info("schema is at head")
 
